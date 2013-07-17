@@ -1,9 +1,10 @@
-= ZOMGBIES!
+# ZOMGBIES!
 
 A little zombie game written in JavaScript
 
-== TODO
+## TODO
 
+* keyboard controls
 * collision detection:
   * zombies can't overlap, should go around each other (use hidden canvas + byDistance)
   * player can't hop over zombies (check for collisions en route)

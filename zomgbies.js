@@ -43,7 +43,7 @@
     images.push(image);
   }
 
-  var canvas = document.getElementsByTagName('canvas')[0],
+  var canvas = $('canvas')[0],
       ctx = canvas.getContext('2d'),
       grid = {width: canvas.offsetWidth, height: canvas.offsetHeight*2};
   canvas.width = canvas.offsetWidth;
@@ -51,8 +51,8 @@
 
   var colt = {
     sounds: {
-      fire: document.getElementById('colt_sounds').children,
-      reload: document.getElementById('reload_sound')
+      fire: $('.colt_sound'),
+      reload: $('#reload_sound')[0]
     },
     shots: 6,
     ready: true,
@@ -188,6 +188,8 @@
 
       if (this.sleepTime)
         this.sleepTime--;
+      else if (this.manual && !this.restRequired)
+        this.manualMove();
       else if (this.targetVisible && !this.restRequired)
         this.pursue();
       else if (this.restTime)
@@ -218,6 +220,11 @@
       else if (direction < -Math.PI)
         direction += 2 * Math.PI;
       return direction;
+    },
+    manualMove: function() {
+      var direction = this.normalizeDirection(Math.atan2(this.manualY, this.manualX));
+      if (this.manualX || this.manualY)
+        this.move(direction, this.speed);
     },
     pursue: function() {
       if (this.dist < this.speed) { // jump to target
@@ -299,10 +306,47 @@
     zombie.sleepTime = 40;
     agents.push(zombie);
   };
+  player.directionKeys = {
+    37: 'W', // left
+    38: 'N', // up
+    39: 'E', // right
+    40: 'S', // down
+    65: 'W', // A
+    87: 'N', // W
+    68: 'E', // D
+    83: 'S'  // S
+  };
+  player.directionKeysPressed = {};
+  player.inferManualDirection = function() {
+    var directions = {};
+    for (key in this.directionKeysPressed) {
+      if (this.directionKeysPressed[key])
+        directions[this.directionKeys[key]] = true;
+    }
+    this.manualX = directions.E ^ directions.W ? (directions.E ? 1 : -1) : 0;
+    this.manualY = directions.S ^ directions.N ? (directions.S ? 1 : -1) : 0;
+  };
+  player.mouseMove = function() {
+    if (this.manual && !this.manualX && !this.manualY)
+      this.manual = false;
+  };
+  player.keyDown = function(key) {
+    this.manual = true;
+    if (!this.directionKeys[key])
+      return;
+    this.directionKeysPressed[key] = true;
+    this.inferManualDirection();
+  };
+  player.keyUp = function(key) {
+    if (!this.directionKeys[key])
+      return;
+    this.directionKeysPressed[key] = false;
+    this.inferManualDirection();
+  };
   agents.push(player);
 
   function runIt(context) {
-    var total = 5,
+    var total = 50,
         i,
         agent,
         numZombies;
@@ -329,18 +373,37 @@
     setTimeout(runIt.bind(this, context), 50);
   }
 
-  document.addEventListener('mousemove', function(e) {
+  var $doc = $(document);
+  $doc.on('mousemove', function(e) {
     mouseTarget.x = e.clientX + 20;
     mouseTarget.y = e.clientY * 2 + 160;
-  }, false);
-  document.addEventListener('click', function(e) {
+    player.mouseMove();
+  });
+  $doc.on('click', function(e) {
     mouseTarget.x = e.clientX + 20;
     mouseTarget.y = e.clientY * 2 + 160;
     if (colt.ready) {
       player.rest(5, true);
       colt.fire();
     }
-  }, false);
+  });
+
+  $doc.on('keydown', function(e) {
+    if (!player.dead)
+      player.keyDown(e.which);
+  });
+  $doc.on('keyup', function(e) {
+    if (!player.dead) {
+      player.keyUp(e.which);
+    }
+  });
+  $doc.on('keypress', function(e) {
+    console.log(e.which);
+    if (e.which == 32 && colt.ready) {
+      player.rest(5, true);
+      colt.fire();
+    }
+  });
 
   runIt(ctx);
 })();
