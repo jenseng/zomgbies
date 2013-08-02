@@ -289,7 +289,7 @@
 
   var player = new Tracker(mouseTarget);
   player.pursuitWobble = 0;
-  player.speed = 40;
+  player.speed = 30;
   player.sprite = 0;
   player.set(mouseTarget.x, mouseTarget.y);
   player.checkProximity = function() {
@@ -331,9 +331,9 @@
       this.manual = false;
   };
   player.keyDown = function(key) {
-    this.manual = true;
     if (!this.directionKeys[key])
       return;
+    this.manual = true;
     this.directionKeysPressed[key] = true;
     this.inferManualDirection();
   };
@@ -398,7 +398,6 @@
     }
   });
   $doc.on('keypress', function(e) {
-    console.log(e.which);
     if (e.which == 32 && colt.ready) {
       player.rest(5, true);
       colt.fire();
