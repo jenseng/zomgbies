@@ -43,11 +43,18 @@
     images.push(image);
   }
 
-  var canvas = $('canvas')[0],
-      ctx = canvas.getContext('2d'),
-      grid = {width: canvas.offsetWidth, height: canvas.offsetHeight*2};
-  canvas.width = canvas.offsetWidth;
-  canvas.height = canvas.offsetHeight;
+  var canvas = $('canvas')[0];
+  var board = {
+    canvas: canvas,
+    context: canvas.getContext('2d'),
+    resize: function() {
+      this.canvas.width = this.canvas.offsetWidth;
+      this.canvas.height = this.canvas.offsetHeight;
+      this.width = this.canvas.width;
+      this.height = this.canvas.height*2;
+    }
+  };
+  board.resize();
 
   var colt = {
     sounds: {
@@ -143,22 +150,22 @@
     patrolCorrection: 3,
     maxDecayTime: 80,
     randomStart: function() {
-      var startPos = Math.random() * 2 * (grid.width + grid.height);
-      if (startPos < grid.width) {
+      var startPos = Math.random() * 2 * (board.width + board.height);
+      if (startPos < board.width) {
         this.direction = Math.PI / 2;
         this.set(startPos, 0);
       }
-      else if (startPos < grid.width + grid.height) {
+      else if (startPos < board.width + board.height) {
         this.direction = Math.PI;
-        this.set(grid.width + this.size / 2, startPos - grid.width);
+        this.set(board.width + this.size / 2, startPos - board.width);
       }
-      else if (startPos < 2 * grid.width + grid.height) {
+      else if (startPos < 2 * board.width + board.height) {
         this.direction = 3 * Math.PI / 2;
-        this.set(startPos - grid.width - grid.height, grid.height + this.size * 4);
+        this.set(startPos - board.width - board.height, board.height + this.size * 4);
       }
       else {
         this.direction = 0;
-        this.set(-this.size / 2, startPos - 2 * grid.width - grid.height);
+        this.set(-this.size / 2, startPos - 2 * board.width - board.height);
       }
     },
     render: function(context) {
@@ -282,8 +289,8 @@
   Zombie.prototype = new Tracker;
 
   var mouseTarget = {
-    x: grid.width/2,
-    y: grid.height/2,
+    x: board.width/2,
+    y: board.height/2,
     caughtBy: function(){}
   };
 
@@ -345,7 +352,7 @@
   };
   agents.push(player);
 
-  function runIt(context) {
+  function runIt(board) {
     var total = 50,
         i,
         agent,
@@ -356,7 +363,7 @@
         agents.push(new Zombie(player));
       }
     }
-    context.clearRect(0, 0, canvas.width, canvas.height);
+    board.context.clearRect(0, 0, board.width, board.height);
     agents.sort();
     for (i = 0; i < agents.length; i++) {
       // closest ones get to move first
@@ -367,10 +374,10 @@
       }
     }
     for (i = 0; i < agents.byStacking.length; i++) {
-      agents.byStacking[i].render(context);
+      agents.byStacking[i].render(board.context);
     }
-    colt.render(context);
-    setTimeout(runIt.bind(this, context), 50);
+    colt.render(board.context);
+    setTimeout(runIt.bind(this, board), 50);
   }
 
   var $doc = $(document);
@@ -404,5 +411,8 @@
     }
   });
 
-  runIt(ctx);
+  var $window = $(window);
+  $window.on('resize', board.resize.bind(board));
+
+  runIt(board);
 })();

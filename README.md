@@ -15,5 +15,4 @@ A little zombie game written in JavaScript
 * player death sound
 * HUD
 * moar sprites
-* fix window resize
 
