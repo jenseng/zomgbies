@@ -1,6 +1,6 @@
 (function($) {
 
-  var sectorSize = 90;
+  var sectorSize = 48;
 
   function normalizeDirection(direction) {
     if (direction > Math.PI)
@@ -238,6 +238,22 @@
       lines.push(line);
       return lines;
     },
+    renderDebug: function(board) {
+      var sectors = this.game.agents.sectors;
+          sectorCount = 0;
+          sectorAgents = 0;
+      for (var sector in sectors) {
+        sectorCount++;
+        sectorAgents += sectors[sector].length;
+      }
+      this.renderText(
+        board,
+        "sectors: " + sectorCount +
+        "\nagents: " + sectorAgents,
+        30,
+        "left",
+        "top");
+    },
     render: function(board) {
       var canvas = board.canvas,
           context = board.context,
@@ -252,6 +268,8 @@
       context.globalAlpha = 0.6;
       context.fillStyle = player.dead ? '#333' : '#800';
       context.strokeStyle = '#000';
+      if (this.game.config.debug)
+        this.renderDebug(board);
       this.renderText(board, "kills: " + this.kills + "\nstreak: " + this.killStreak + " (" + this.maxKillStreak + ")\ncombo: " + this.maxCombo, 30, "left", "bottom");
       this.renderText(board, "walkers: " + this.game.agents.numZombies + "\nshots: " + (player.weapon.shots ? player.weapon.shots : "..."), 30, "right", "bottom");
       if (this.statusTime) {
@@ -307,9 +325,10 @@
     bestMoveFor: function(agent, direction, distance) {
       var currDir,
           currDist,
-          currMove;
-      // try 8 directions and 4 speeds
-      for (var i = 0; i < 4; i++) {
+          currMove,
+          collision;
+      // try 8 directions at 4 decreasing speeds, starting w/ desired vector
+      for (var i = 0; i < 1; i++) {
         currDist = (4 - i) / 4 * distance;
         for (var j = 0; j < 8; j++) {
           // start with current bearing, then alternate 45deg left and right until we hit 180
@@ -319,7 +338,29 @@
             return {direction: currDir, x: currMove.x, y: currMove.y};
         }
       }
+      // then see if we already overlap (due to spawn/bug/whatever), and if so, flee nearest neighbor at 1/2 impulse (overlap be damned)
+      collision = this.closestCollision(agent);
+      if (collision) {
+        currDir = normalizeDirection(Math.PI + collision.direction);
+        return {
+          direction: currDir,
+          x: agent.x + 0.5 * distance * Math.cos(currDir),
+          y: agent.y + 0.5 * distance * Math.sin(currDir)
+        };
+      }
+      // we're surrounded but not overlapping, wait a tick for neighbors to leave
       return null;
+    },
+    closestCollision: function(agent) {
+      var neighbors = this.neighborsFor(sectorCoord(agent.x), sectorCoord(agent.y), agent),
+          collision,
+          closest;
+      for (var i = 0; i < neighbors.length; i++) {
+        collision = agent.checkCollision(neighbors[i], agent.x, agent.y);
+        if (collision && (!closest || collision.dist < closest.dist))
+          closest = collision;
+      }
+      return collision;
     },
     validMoveFor: function(agent, direction, distance) {
       var x = agent.x + distance * Math.cos(direction),
@@ -329,11 +370,10 @@
       if (agent !== this.game.player) {
         var neighbors = this.neighborsFor(sectorX, sectorY, agent);
         for (var i = 0; i < neighbors.length; i++) {
-          if (agent.intersects(neighbors[i], x, y))
+          if (agent.checkCollision(neighbors[i], x, y))
             return false;
         }
       }
-      //console.log("valid move! d: " +distance + ", " + agent.x + " -> " + x + ", " + agent.y + " -> " + y)
       return {x: x, y: y};
     },
     neighborsFor: function(x, y, agent) {
@@ -344,7 +384,7 @@
           sector = this.sectors[(x + i) + ":" + (y + j)];
           if (!sector) continue;
           for (var n = 0; n < sector.length; n++) {
-            if (sector[n] === agent || sector[n] === this.game.player) continue;
+            if (sector[n] === agent || sector[n] === this.game.player || sector[n].dead) continue;
             neighbors.push(sector[n]);
           }
         }
@@ -364,10 +404,9 @@
     addToSector: function(agent, sKey) {
       if (typeof sKey === 'undefined')
         sKey = agent.sector();
-      if (!this.sectors[sKey]) {
+      if (!this.sectors[sKey])
         this.sectors[sKey] = [];
-        this.sectors[sKey].push(agent);
-      }
+      this.sectors[sKey].push(agent);
     },
     removeFromSector: function(agent, sKey) {
       if (typeof sKey === 'undefined')
@@ -393,6 +432,7 @@
       this.numZombies = numZombies;
     },
     render: function(board) {
+      //console.log("len: " + this.length + ", stack: " + this.byStacking.length + ", dist: " + this.byDistance.length);
       for (var i = 0; i < this.byStacking.length; i++) {
         this.byStacking[i].render(board);
       }
@@ -494,7 +534,7 @@
     this.target = target;
   }
   Tracker.prototype = {
-    speed: 3,
+    speed: 4,
     size: 24,
     pursuitWobble: 20,
     patrolWobble: 30,
@@ -530,7 +570,7 @@
           context.globalAlpha = this.decayTime > this.maxDecayTime / 2 ? 1 : 2 * this.decayTime / this.maxDecayTime;
         context.translate(Math.round(this.x), Math.round(this.y / 2));
         context.rotate(Math.PI / 2);
-        context.drawImage(sprite, -sprite.width / 2, -sprite.height / 2);
+        context.drawImage(sprite, -sprite.width, -sprite.height / 2);
         context.restore();
       }
       else {
@@ -563,11 +603,14 @@
         this.patrol();
       return true;
     },
-    intersects: function(other, newX, newY) {
+    checkCollision: function(other, newX, newY) {
       var distX = other.x - newX,
           distY = other.y - newY,
           dist = Math.sqrt(distX * distX + distY * distY);
-      return dist < (this.size + other.size) / 2;
+      if (dist > (this.size + other.size) / 2)
+        return false;
+      else
+        return {direction: Math.atan2(distY, distX)};
     },
     checkProximity: function() {
       this.targetVisible = false;
@@ -609,7 +652,7 @@
         var direction = normalizeDirection(this.optimalDirection + this.wobble(this.pursuitWobble));
         var speed = this.speed;
         if (this !== this.game.player) {
-          speed *= (2 + Math.random() + (1 - Math.pow(Math.min(1, this.dist / this.game.pursuitThreshold), 2))) / 4;
+          speed *= (2 + Math.random() + (1 - Math.pow(Math.min(1, this.dist / this.game.pursuitThreshold), 3))) / 4;
         }
         this.move(direction, speed);
       }
@@ -679,7 +722,7 @@
   Player.prototype = new Tracker;
   $.extend(Player.prototype, {
     pursuitWobble: 0,
-    speed: 10,
+    speed: 12,
     sprite: 0,
     checkProximity: function() {
       Tracker.prototype.checkProximity.call(this);
