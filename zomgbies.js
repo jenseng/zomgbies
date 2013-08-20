@@ -8,7 +8,7 @@
     this.config = $.extend({}, this.config, options, true);
 
     this.$canvas = $canvas;
-    this.board = new Board($canvas);
+    this.board = new Board(this, $canvas);
     this.stats = new Stats(this);
 
     this.mouseTarget = new MouseTarget(this.board);
@@ -17,10 +17,13 @@
     this.agents = new AgentList(this);
     this.agents.push(this.player);
     this.addListeners($canvas);
+
+    this.pursuitThreshold = this.config.pursuitThreshold;
   };
   Game.prototype = {
     config: {
-      maxZombies: 50
+      maxZombies: 50,
+      pursuitThreshold: 200
     },
     addListeners: function() {
       var $doc = $(document);
@@ -34,10 +37,8 @@
       this.$canvas.on('click', function(e) {
         this.mouseTarget.x = e.clientX + 20;
         this.mouseTarget.y = e.clientY * 2 + 160;
-        if (this.colt.ready) {
-          this.player.rest(5, true);
-          this.colt.fire();
-        }
+        if (this.player.weapon.ready)
+          this.player.fire();
       }.bind(this));
 
       $doc.on('keydown', function(e) {
@@ -52,10 +53,8 @@
       }.bind(this));
 
       $doc.on('keypress', function(e) {
-        if (e.which == 32 && this.colt.ready) {
-          this.player.rest(5, true);
-          this.colt.fire();
-        }
+        if (e.which == 32 && this.player.weapon.ready)
+          this.player.fire();
       }.bind(this));
 
       if (this.config.resize) {
@@ -68,7 +67,9 @@
       this.agents.move();
 
       this.agents.sort();
-      this.board.render(this.agents, this.colt, this.stats);
+      this.board.render(this.agents, this.player.weapon, this.stats);
+      if (this.pursuitThreshold > this.config.pursuitThreshold)
+        this.pursuitThreshold -= 2;
       setTimeout(this.run.bind(this), 33);
     },
     maybeAddZombies: function() {
@@ -91,7 +92,8 @@
     }
   };
 
-  var Board = function($canvas) {
+  var Board = function(game, $canvas) {
+    this.game = game;
     this.canvas = $canvas[0];
     this.context = this.canvas.getContext('2d');
     this.resize();
@@ -103,9 +105,22 @@
       this.width = this.canvas.width;
       this.height = this.canvas.height * 2;
     },
+    renderRadius: function() {
+      var context = this.context;
+      context.save();
+      context.scale(1, 0.5);
+      context.globalAlpha = 0.25;
+      context.beginPath();
+      context.arc(this.game.player.x, this.game.player.y - this.game.player.size, this.game.pursuitThreshold, 0, 2 * Math.PI);
+      context.fillStyle = '#ffd';
+      context.fill();
+      context.restore();
+    },
     render: function() {
       this.context.clearRect(0, 0, this.width, this.height);
       var args = [].slice.call(arguments);
+      //if (!this.game.player.dead)
+      //  this.renderRadius();
       for (var i = 0; i < args.length; i++) {
         args[i].render(this);
       }
@@ -154,10 +169,64 @@
         context.strokeText(lines[i], x, y);
       }
     },
+    renderText: function(board, text, lineHeight, xAlign, yAlign) {
+      var canvas = board.canvas,
+          context = board.context,
+          lines = text.split("\n"),
+          newLines,
+          metrics,
+          height,
+          x = 10,
+          y = 5,
+          i;
+      for (i = 0; i < lines.length; i++) {
+        metrics = context.measureText(lines[i]);
+        if (metrics.width >= canvas.width) {
+          newLines = this.wrapText(canvas, context, lines[i]);
+          newLines.splice(0, 0, i, 1);
+          i += newLines.length - 1;
+          lines.splice.apply(lines, newLines);
+        }
+      }
+      height = lines.length * lineHeight;
+      if (xAlign === 'center')
+        x = canvas.width / 2;
+      else if (xAlign == 'right')
+        x = canvas.width - 10;
+      if (yAlign === 'center')
+        y = (canvas.height - height) / 2;
+      else if (yAlign === 'bottom')
+        y = canvas.height - height - 5;
+
+      context.textAlign = xAlign;
+      for (i = 0; i < lines.length; i++) {
+        context.fillText(lines[i], x, y);
+        context.strokeText(lines[i], x, y);
+        y += lineHeight;
+      }
+    },
+    wrapText: function(canvas, context, text) {
+      var words = text.split(/\s/),
+          lines = [],
+          line = '',
+          testLine,
+          metrics;
+      for (var i = 0; i < words.length; i++) {
+        testLine = line + words[i] + ' ';
+        metrics = context.measureText(testLine);
+        if (line && metrics.width > canvas.width) {
+          lines.push(line);
+          line = words[i] + ' ';
+        } else {
+          line = testLine;
+        }
+      }
+      lines.push(line);
+      return lines;
+    },
     render: function(board) {
       var canvas = board.canvas,
           context = board.context,
-          colt = this.game.colt,
           player = this.game.player,
           x,
           y,
@@ -165,27 +234,16 @@
           lines;
       context.save();
       context.font = "bold 24px sans-serif";
-      context.textBaseline = "baseline";
+      context.textBaseline = "top";
       context.globalAlpha = 0.6;
-      context.fillStyle = player.dead ? '#666' : '#800';
+      context.fillStyle = player.dead ? '#333' : '#800';
       context.strokeStyle = '#000';
-      this.renderLines(context, board, "left", [
-        "kills: " + this.kills,
-        "streak: " + this.killStreak + " (max: " + this.maxKillStreak + ")",
-        "combo: " + this.maxCombo
-      ]);
-      this.renderLines(context, board, "right", [
-        "walkers: " + this.game.agents.numZombies,
-        "shots: " + (colt.shots ? colt.shots : "...")
-      ]);
+      this.renderText(board, "kills: " + this.kills + "\nstreak: " + this.killStreak + " (" + this.maxKillStreak + ")\ncombo: " + this.maxCombo, 30, "left", "bottom");
+      this.renderText(board, "walkers: " + this.game.agents.numZombies + "\nshots: " + (player.weapon.shots ? player.weapon.shots : "..."), 30, "right", "bottom");
       if (this.statusTime) {
-        x = board.canvas.width / 2;
-        y = board.canvas.height / 2;
-        context.textAlign = 'center';
         context.font = "bold 36px sans-serif";
         context.globalAlpha = 0.6 * Math.min(1, 4 * this.statusTime / this.maxStatusTime);
-        context.fillText(this.status, x, y);
-        context.strokeText(this.status, x, y);
+        this.renderText(board, this.status, 42, "center", "center");
         this.statusTime--;
       }
       context.restore();
@@ -344,9 +402,8 @@
     this.target = target;
   }
   Tracker.prototype = {
-    speed: 3,
+    speed: 2,
     size: 36,
-    pursuitThreshold: 300,
     pursuitWobble: 20,
     patrolWobble: 30,
     patrolCorrection: 3,
@@ -400,7 +457,7 @@
         this.sleepTime--;
       else if (this.manual && !this.restRequired)
         this.manualMove();
-      else if (this.targetVisible && !this.restRequired)
+      else if ((this.targetVisible || this.targetTrackTime) && !this.restRequired)
         this.pursue();
       else if (this.restTime)
         this.rest();
@@ -417,7 +474,9 @@
         this.distY = this.target.y - this.y;
         this.dist = Math.sqrt(this.distX * this.distX + this.distY * this.distY);
         this.optimalDirection = Math.atan2(this.distY, this.distX);
-        this.targetVisible = this.dist < this.pursuitThreshold;
+        this.targetVisible = this.dist < this.game.pursuitThreshold;
+      } else {
+        this.targetTrackTime = 0;
       }
     },
     wobble: function(degrees) {
@@ -437,6 +496,10 @@
         this.move(direction, this.speed);
     },
     pursue: function() {
+      if (this.targetTrackTime)
+        this.targetTrackTime--;
+      else
+        this.targetTrackTime = 120;
       if (this.dist < this.speed) { // jump to target
         this.set(this.target.x, this.target.y);
         this.target.caughtBy(this);
@@ -503,12 +566,12 @@
     Tracker.call(this, game, mouseTarget);
     this.set(this.target.x, this.target.y);
     this.directionKeysPressed = {};
-    this.colt = new Colt(game, this);
+    this.weapon = new Colt(game, this);
   }
   Player.prototype = new Tracker;
   $.extend(Player.prototype, {
     pursuitWobble: 0,
-    speed: 15,
+    speed: 10,
     sprite: 0,
     checkProximity: function() {
       Tracker.prototype.checkProximity.call(this);
@@ -516,7 +579,7 @@
     },
     caughtBy: function(tracker) {
       this.dead = true;
-      this.colt.ready = false;
+      this.weapon.ready = false;
       this.game.gameOver();
     },
     directionKeys: {
@@ -554,6 +617,11 @@
         return;
       this.directionKeysPressed[key] = false;
       this.inferManualDirection();
+    },
+    fire: function() {
+      this.rest(5, true);
+      this.game.pursuitThreshold += this.game.config.pursuitThreshold;
+      this.weapon.fire();
     }
   });
 
