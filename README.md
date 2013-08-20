@@ -6,9 +6,10 @@ A little zombie game written in JavaScript
 
 ## TODO
 
-* collision detection:
-  * zombies can't overlap, should go around each other (use hidden canvas + byDistance)
-  * player can't hop over zombies (check for collisions en route)
+* better collision detection
+  * fix glitches
+  * make zombies repel if somehow they overlap (e.g. random spawn)
+* chance to knock over zombie if just grazed (not full on collision)
 * gunshot animation
 * blood
 * zombie sounds

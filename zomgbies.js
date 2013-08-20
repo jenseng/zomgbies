@@ -1,5 +1,19 @@
 (function($) {
 
+  var sectorSize = 90;
+
+  function normalizeDirection(direction) {
+    if (direction > Math.PI)
+      direction -= 2 * Math.PI;
+    else if (direction < -Math.PI)
+      direction += 2 * Math.PI;
+    return direction;
+  }
+
+  function sectorCoord(n) {
+    return parseInt(n / sectorSize, 10);
+  }
+
   var Zomgbie = function($canvas, options){
     new Game($canvas, options).run();
   };
@@ -11,10 +25,10 @@
     this.board = new Board(this, $canvas);
     this.stats = new Stats(this);
 
+    this.agents = new AgentList(this);
     this.mouseTarget = new MouseTarget(this.board);
     this.player = new Player(this, this.mouseTarget);
     this.colt = this.player.colt;
-    this.agents = new AgentList(this);
     this.agents.push(this.player);
     this.addListeners($canvas);
 
@@ -22,7 +36,7 @@
   };
   Game.prototype = {
     config: {
-      maxZombies: 50,
+      maxZombies: 100,
       pursuitThreshold: 200
     },
     addListeners: function() {
@@ -70,7 +84,7 @@
       this.board.render(this.agents, this.player.weapon, this.stats);
       if (this.pursuitThreshold > this.config.pursuitThreshold)
         this.pursuitThreshold -= 2;
-      setTimeout(this.run.bind(this), 33);
+      setTimeout(this.run.bind(this), 33);//33);
     },
     maybeAddZombies: function() {
       if (this.agents.numZombies < this.config.maxZombies && Math.random() * 80 < 1) {
@@ -119,8 +133,8 @@
     render: function() {
       this.context.clearRect(0, 0, this.width, this.height);
       var args = [].slice.call(arguments);
-      //if (!this.game.player.dead)
-      //  this.renderRadius();
+      if (!this.game.player.dead)
+        this.renderRadius();
       for (var i = 0; i < args.length; i++) {
         args[i].render(this);
       }
@@ -252,6 +266,7 @@
 
   function AgentList(game){
     this.game = game;
+    this.sectors = {};
   }
   AgentList.prototype = {
     byStacking: [],
@@ -259,7 +274,6 @@
     length: 0,
     push: function(item) {
       this.length++;
-      this.numZombies++;
       this.byDistance.push(item);
       this.byStacking.push(item);
     },
@@ -270,7 +284,10 @@
       this.byStacking.sort(function(a, b) {
         return a.y - b.y;
       });
+      this.sectors = {};
       for (var i = 0; i < this.length; i++) {
+        var agent = this.byDistance[i];
+        this.addToSector(agent);
         this.byDistance[i].distanceIdx = i;
         this.byStacking[i].stackingIdx = i;
       }
@@ -285,6 +302,80 @@
       this.byStacking.splice(agent.stackingIdx, 1);
       for (i = agent.stackingIdx; i < this.length; i++)
         this.byStacking[i].stackingIdx--;
+      this.removeFromSector(agent);
+    },
+    bestMoveFor: function(agent, direction, distance) {
+      var currDir,
+          currDist,
+          currMove;
+      // try 8 directions and 4 speeds
+      for (var i = 0; i < 4; i++) {
+        currDist = (4 - i) / 4 * distance;
+        for (var j = 0; j < 8; j++) {
+          // start with current bearing, then alternate 45deg left and right until we hit 180
+          currDir = normalizeDirection(direction + (j % 2 === 0 ? 1 : -1) * Math.round(j / 2 + 0.25) * Math.PI / 4);
+          currMove = this.validMoveFor(agent, currDir, currDist);
+          if (currMove)
+            return {direction: currDir, x: currMove.x, y: currMove.y};
+        }
+      }
+      return null;
+    },
+    validMoveFor: function(agent, direction, distance) {
+      var x = agent.x + distance * Math.cos(direction),
+          y = agent.y + distance * Math.sin(direction),
+          sectorX = sectorCoord(x),
+          sectorY = sectorCoord(y);
+      if (agent !== this.game.player) {
+        var neighbors = this.neighborsFor(sectorX, sectorY, agent);
+        for (var i = 0; i < neighbors.length; i++) {
+          if (agent.intersects(neighbors[i], x, y))
+            return false;
+        }
+      }
+      //console.log("valid move! d: " +distance + ", " + agent.x + " -> " + x + ", " + agent.y + " -> " + y)
+      return {x: x, y: y};
+    },
+    neighborsFor: function(x, y, agent) {
+      var neighbors = [],
+          sector;
+      for (var i = -1; i <= 1; i++) {
+        for (var j = -1; j <= 1; j++) {
+          sector = this.sectors[(x + i) + ":" + (y + j)];
+          if (!sector) continue;
+          for (var n = 0; n < sector.length; n++) {
+            if (sector[n] === agent || sector[n] === this.game.player) continue;
+            neighbors.push(sector[n]);
+          }
+        }
+      }
+      return neighbors;
+    },
+    set: function(agent, x, y) {
+      var sKeyOld = agent.sector(),
+          sKey;
+      agent.x = x;
+      agent.y = y;
+      sKey = agent.sector();
+      if (sKey !== sKeyOld)
+        this.removeFromSector(agent, sKeyOld);
+      this.addToSector(agent, sKey);
+    },
+    addToSector: function(agent, sKey) {
+      if (typeof sKey === 'undefined')
+        sKey = agent.sector();
+      if (!this.sectors[sKey]) {
+        this.sectors[sKey] = [];
+        this.sectors[sKey].push(agent);
+      }
+    },
+    removeFromSector: function(agent, sKey) {
+      if (typeof sKey === 'undefined')
+        sKey = agent.sector();
+      if (this.sectors[sKey]) {
+        var idx = this.sectors[sKey].indexOf(agent);
+        this.sectors[sKey].splice(idx, 1);
+      }
     },
     move: function() {
       var agent,
@@ -355,7 +446,7 @@
         }
       }
       this.game.stats.addShotInfo(hitCount);
-      direction = Tracker.prototype.normalizeDirection(direction + Math.PI);
+      direction = normalizeDirection(direction + Math.PI);
       this.lastShot = {x: player.x, y: player.y, direction: direction, visibleTime: this.maxVisibleTime};
       this.shots--;
       sound = this.game.config.sounds.fire[this.shots % 3];
@@ -386,8 +477,8 @@
       if (this.lastShot && this.lastShot.visibleTime) {
         context.save();
         context.beginPath();
-        context.moveTo(this.lastShot.x, this.lastShot.y/2 - 40); // shot fired from 5/9 up player
-        context.lineTo(this.lastShot.x + 600 * Math.cos(this.lastShot.direction), (this.lastShot.y + 600 * Math.sin(this.lastShot.direction))/2 - 56); // end of stroke is 7/9 up (through head of zombies)
+        context.moveTo(this.lastShot.x, this.lastShot.y / 2 - 40); // shot fired from 5/9 up player
+        context.lineTo(this.lastShot.x + 600 * Math.cos(this.lastShot.direction), (this.lastShot.y + 600 * Math.sin(this.lastShot.direction)) / 2 - 56); // end of stroke is 7/9 up (through head of zombies)
         context.strokeStyle = '#ccc';
         context.globalAlpha = this.lastShot.visibleTime / this.maxVisibleTime;
         context.stroke();
@@ -399,11 +490,12 @@
 
   function Tracker(game, target) {
     this.game = game;
+    this.agents = game ? game.agents : null;
     this.target = target;
   }
   Tracker.prototype = {
-    speed: 2,
-    size: 36,
+    speed: 3,
+    size: 24,
     pursuitWobble: 20,
     patrolWobble: 30,
     patrolCorrection: 3,
@@ -428,21 +520,25 @@
       }
     },
     render: function(board) {
-      var context = board.context;
+      var context = board.context,
+          sprite = this.game.config.sprites[this.sprite];
       if (this.dead && !this.decayTime)
         return;
       if (this.decayTime || this.sleepTime) {
         context.save();
         if (this.decayTime)
           context.globalAlpha = this.decayTime > this.maxDecayTime / 2 ? 1 : 2 * this.decayTime / this.maxDecayTime;
-        context.translate(Math.round(this.x + this.size), Math.round(this.y/2 - this.size));
+        context.translate(Math.round(this.x), Math.round(this.y / 2));
         context.rotate(Math.PI / 2);
-        context.drawImage(images[this.sprite], 0, 0);
+        context.drawImage(sprite, -sprite.width / 2, -sprite.height / 2);
         context.restore();
       }
       else {
-        context.drawImage(images[this.sprite], Math.round(this.x - this.size/2), Math.round(this.y/2 - this.size*2));
+        context.drawImage(sprite, Math.round(this.x - sprite.width / 2), Math.round(this.y / 2 - sprite.height));
       }
+    },
+    sector: function() {
+      return sectorCoord(this.x) + ":" + sectorCoord(this.y);
     },
     nextMove: function() {
       if (this.dead) {
@@ -467,6 +563,12 @@
         this.patrol();
       return true;
     },
+    intersects: function(other, newX, newY) {
+      var distX = other.x - newX,
+          distY = other.y - newY,
+          dist = Math.sqrt(distX * distX + distY * distY);
+      return dist < (this.size + other.size) / 2;
+    },
     checkProximity: function() {
       this.targetVisible = false;
       if (this.target && !this.target.dead) {
@@ -483,15 +585,8 @@
       if (!degrees) return 0;
       return Math.PI * (Math.random() * degrees / 90 - degrees / 180);
     },
-    normalizeDirection: function(direction) {
-      if (direction > Math.PI)
-        direction -= 2 * Math.PI;
-      else if (direction < -Math.PI)
-        direction += 2 * Math.PI;
-      return direction;
-    },
     manualMove: function() {
-      var direction = this.normalizeDirection(Math.atan2(this.manualY, this.manualX));
+      var direction = normalizeDirection(Math.atan2(this.manualY, this.manualX));
       if (this.manualX || this.manualY)
         this.move(direction, this.speed);
     },
@@ -500,27 +595,35 @@
         this.targetTrackTime--;
       else
         this.targetTrackTime = 120;
-      if (this.dist < this.speed) { // jump to target
-        this.set(this.target.x, this.target.y);
+      if (this.dist - (this.size + this.target.size) / 2 < this.speed) { // jump to target
+        if (this.dist < this.speed) {
+          this.set(this.target.x, this.target.y);
+        } else {
+          this.move(this.optimalDirection, this.speed);
+        }
         this.target.caughtBy(this);
         this.restTime = 20;
       }
       else {
-        // pursue with a slight wobble
-        var direction = this.normalizeDirection(this.optimalDirection + this.wobble(this.pursuitWobble));
-        this.move(direction, this.speed);
+        // pursue with a slight wobble and variable speed (faster if closer)
+        var direction = normalizeDirection(this.optimalDirection + this.wobble(this.pursuitWobble));
+        var speed = this.speed;
+        if (this !== this.game.player) {
+          speed *= (2 + Math.random() + (1 - Math.pow(Math.min(1, this.dist / this.game.pursuitThreshold), 2))) / 4;
+        }
+        this.move(direction, speed);
       }
     },
     patrol: function() {
       // random direction within patrolWobble of previous direction
-      var direction = this.normalizeDirection(this.direction + this.wobble(this.patrolWobble));
+      var direction = normalizeDirection(this.direction + this.wobble(this.patrolWobble));
       if (this.target) {
         // do a slight correction towards target if more than 90deg off
-        var difference = this.normalizeDirection(this.optimalDirection - direction);
+        var difference = normalizeDirection(this.optimalDirection - direction);
         if (Math.abs(difference) > Math.PI / 2)
           direction += (difference > 0 ? 1 : -1) * Math.PI * this.patrolCorrection / 180;
       }
-      this.move(direction, this.speed * 2 / 3);
+      this.move(direction, this.speed / 2);
     },
     rest: function(duration, required) {
       if (typeof duration == 'undefined') {
@@ -534,10 +637,14 @@
       }
     },
     move: function(direction, distance) {
-      this.direction = direction;
-      this.set(this.x + distance * Math.cos(direction), this.y + distance * Math.sin(direction));
+      var frd = this.agents.bestMoveFor(this, direction, distance);
+      if (frd) {
+        this.direction = frd.direction;
+        this.set(frd.x, frd.y);
+      }
     },
     set: function(x, y) {
+      this.agents.set(this, x, y);
       this.x = x;
       this.y = y;
     },
@@ -555,11 +662,12 @@
   Zombie.prototype = new Tracker;
 
   function MouseTarget(board) {
-    this.x = board.width/2;
-    this.y = board.height/2;
+    this.x = board.width / 2;
+    this.y = board.height / 2;
   }
   MouseTarget.prototype = {
-    caughtBy: function(){}
+    caughtBy: function(){},
+    size: 0
   };
 
   function Player(game, mouseTarget) {
