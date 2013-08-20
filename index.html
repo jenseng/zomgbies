@@ -24,5 +24,37 @@
     <audio src="audio/colt.mp3" preload="auto" class="colt_sound"></audio>
     <audio src="audio/reload.m4a" preload="auto" id="reload_sound"></audio>
     <script src="zomgbies.js"></script>
+    <script>
+      var images = [];
+      for (var i = 1; i <= 16; i++) {
+        var image = new Image();
+        image.src = "images/agent" + i + ".png";
+        (function(image){
+          image.onload = function() { image.loaded = true; };
+        }).call(this, image);
+        images.push(image);
+      }
+
+      Zomgbie(
+        $('canvas'), {
+          resize: true,
+          messages: {
+            gameOver: [
+              "Admit it, you only came back to Atlanta for the hat",
+              "This rage is gonna get you killed",
+              "You pull the trigger, you have to mean it",
+              "There's always hope. Maybe it won't be you, maybe not be here. But somebody somewhere...",
+              "Nice moves there, Clint Eastwood",
+              "People like you, the good people, they always die"
+            ]
+          },
+          sprites: images,
+          sounds: {
+            fire: $('.colt_sound'),
+            reload: $('#reload_sound')[0]
+          }
+        }
+      );
+    </script>
   </body>
 </html>

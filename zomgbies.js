@@ -1,11 +1,207 @@
-(function() {
+(function($) {
 
-  var agents = {
+  var Zomgbie = function($canvas, options){
+    new Game($canvas, options).run();
+  };
+
+  var Game = function($canvas, options) {
+    this.config = $.extend({}, this.config, options, true);
+
+    this.$canvas = $canvas;
+    this.board = new Board($canvas);
+    this.stats = new Stats(this);
+
+    this.mouseTarget = new MouseTarget(this.board);
+    this.player = new Player(this, this.mouseTarget);
+    this.colt = this.player.colt;
+    this.agents = new AgentList(this);
+    this.agents.push(this.player);
+    this.addListeners($canvas);
+  };
+  Game.prototype = {
+    config: {
+      maxZombies: 50
+    },
+    addListeners: function() {
+      var $doc = $(document);
+
+      this.$canvas.on('mousemove', function(e) {
+        this.mouseTarget.x = e.clientX + 20;
+        this.mouseTarget.y = e.clientY * 2 + 160;
+        this.player.mouseMove();
+      }.bind(this));
+
+      this.$canvas.on('click', function(e) {
+        this.mouseTarget.x = e.clientX + 20;
+        this.mouseTarget.y = e.clientY * 2 + 160;
+        if (this.colt.ready) {
+          this.player.rest(5, true);
+          this.colt.fire();
+        }
+      }.bind(this));
+
+      $doc.on('keydown', function(e) {
+        if (!this.player.dead)
+          this.player.keyDown(e.which);
+      }.bind(this));
+
+      $doc.on('keyup', function(e) {
+        if (!this.player.dead) {
+          this.player.keyUp(e.which);
+        }
+      }.bind(this));
+
+      $doc.on('keypress', function(e) {
+        if (e.which == 32 && this.colt.ready) {
+          this.player.rest(5, true);
+          this.colt.fire();
+        }
+      }.bind(this));
+
+      if (this.config.resize) {
+        var $window = $(window);
+        $window.on('resize', this.board.resize.bind(this.board));
+      }
+    },
+    run: function() {
+      this.maybeAddZombies();
+      this.agents.move();
+
+      this.agents.sort();
+      this.board.render(this.agents, this.colt, this.stats);
+      setTimeout(this.run.bind(this), 33);
+    },
+    maybeAddZombies: function() {
+      if (this.agents.numZombies < this.config.maxZombies && Math.random() * 80 < 1) {
+        var numZombies = Math.min(Math.ceil(Math.random() * 5), this.config.maxZombies - this.agents.numZombies);
+        for (var i = 0; i < numZombies; i++) {
+          this.agents.push(new Zombie(this, this.player));
+        }
+      }
+    },
+    gameOver: function() {
+      var zombie = new Zombie(this);
+      zombie.sprite = 0;
+      zombie.x = this.player.x;
+      zombie.y = this.player.y + 1; // js sort isn't stable, so we want the zombie consistently in the front during rest
+      zombie.sleepTime = 40;
+      this.agents.push(zombie);
+      var messages = this.config.messages.gameOver;
+      this.stats.setStatus(messages[parseInt(messages.length * Math.random(), 10)]);
+    }
+  };
+
+  var Board = function($canvas) {
+    this.canvas = $canvas[0];
+    this.context = this.canvas.getContext('2d');
+    this.resize();
+  };
+  Board.prototype = {
+    resize: function() {
+      this.canvas.width = this.canvas.offsetWidth;
+      this.canvas.height = this.canvas.offsetHeight;
+      this.width = this.canvas.width;
+      this.height = this.canvas.height * 2;
+    },
+    render: function() {
+      this.context.clearRect(0, 0, this.width, this.height);
+      var args = [].slice.call(arguments);
+      for (var i = 0; i < args.length; i++) {
+        args[i].render(this);
+      }
+    }
+  };
+
+  var Stats = function(game) {
+    this.game = game;
+  };
+  Stats.prototype = {
+    kills: 0,
+    killStreak: 0,
+    maxKillStreak: 0,
+    maxCombo: 0,
+    hitRatio: 0,
+    totalShots: 0,
+    totalHitShots: 0,
+    maxStatusTime: 150,
+    addShotInfo: function(kills) {
+      this.totalShots++;
+      if (kills > 1 && kills > this.maxCombo)
+        this.maxCombo = kills;
+      this.kills += kills;
+      if (kills) {
+        this.totalHitShots++;
+        this.killStreak += kills;
+        if (this.killStreak > this.maxKillStreak)
+          this.maxKillStreak = this.killStreak;
+      } else {
+        this.killStreak = 0;
+      }
+      this.hitRatio = this.totalHitShots / this.totalShots;
+    },
+    setStatus: function(message) {
+      this.status = message;
+      this.statusTime = this.maxStatusTime;
+    },
+    renderLines: function(context, board, alignment, lines){
+      var x,
+          y;
+      context.textAlign = alignment;
+      for (i = 0; i < lines.length; i++) {
+        x = alignment == 'left' ? 10 : board.canvas.width - 10;
+        y = board.canvas.height - 10 - 30 * (lines.length - 1) + i * 30;
+        context.fillText(lines[i], x, y);
+        context.strokeText(lines[i], x, y);
+      }
+    },
+    render: function(board) {
+      var canvas = board.canvas,
+          context = board.context,
+          colt = this.game.colt,
+          player = this.game.player,
+          x,
+          y,
+          i,
+          lines;
+      context.save();
+      context.font = "bold 24px sans-serif";
+      context.textBaseline = "baseline";
+      context.globalAlpha = 0.6;
+      context.fillStyle = player.dead ? '#666' : '#800';
+      context.strokeStyle = '#000';
+      this.renderLines(context, board, "left", [
+        "kills: " + this.kills,
+        "streak: " + this.killStreak + " (max: " + this.maxKillStreak + ")",
+        "combo: " + this.maxCombo
+      ]);
+      this.renderLines(context, board, "right", [
+        "walkers: " + this.game.agents.numZombies,
+        "shots: " + (colt.shots ? colt.shots : "...")
+      ]);
+      if (this.statusTime) {
+        x = board.canvas.width / 2;
+        y = board.canvas.height / 2;
+        context.textAlign = 'center';
+        context.font = "bold 36px sans-serif";
+        context.globalAlpha = 0.6 * Math.min(1, 4 * this.statusTime / this.maxStatusTime);
+        context.fillText(this.status, x, y);
+        context.strokeText(this.status, x, y);
+        this.statusTime--;
+      }
+      context.restore();
+    }
+  };
+
+  function AgentList(game){
+    this.game = game;
+  }
+  AgentList.prototype = {
     byStacking: [],
     byDistance: [],
     length: 0,
     push: function(item) {
       this.length++;
+      this.numZombies++;
       this.byDistance.push(item);
       this.byStacking.push(item);
     },
@@ -21,6 +217,7 @@
         this.byStacking[i].stackingIdx = i;
       }
     },
+    numZombies: 0,
     remove: function(agent) {
       var i;
       this.length--;
@@ -30,37 +227,34 @@
       this.byStacking.splice(agent.stackingIdx, 1);
       for (i = agent.stackingIdx; i < this.length; i++)
         this.byStacking[i].stackingIdx--;
-    }
-  };
-
-  var images = [];
-  for (var i = 1; i <= 16; i++) {
-    var image = new Image();
-    image.src = "images/agent" + i + ".png";
-    (function(image){
-      image.onload = function() { image.loaded = true; };
-    }).call(this, image);
-    images.push(image);
-  }
-
-  var canvas = $('canvas')[0];
-  var board = {
-    canvas: canvas,
-    context: canvas.getContext('2d'),
-    resize: function() {
-      this.canvas.width = this.canvas.offsetWidth;
-      this.canvas.height = this.canvas.offsetHeight;
-      this.width = this.canvas.width;
-      this.height = this.canvas.height*2;
-    }
-  };
-  board.resize();
-
-  var colt = {
-    sounds: {
-      fire: $('.colt_sound'),
-      reload: $('#reload_sound')[0]
     },
+    move: function() {
+      var agent,
+          numZombies = 0;
+      for (var i = 0; i < this.length; i++) {
+        // closest ones get to move first
+        agent = this.byDistance[i];
+        if (!agent.nextMove()) {
+          this.remove(agent);
+          i--;
+        } else if (!agent.dead && agent !== this.game.player) {
+          numZombies++;
+        }
+      }
+      this.numZombies = numZombies;
+    },
+    render: function(board) {
+      for (var i = 0; i < this.byStacking.length; i++) {
+        this.byStacking[i].render(board);
+      }
+    }
+  };
+
+  function Colt(game, player){
+    this.game = game;
+    this.player = player;
+  }
+  Colt.prototype = {
     shots: 6,
     ready: true,
     maxVisibleTime: 5,
@@ -68,16 +262,19 @@
       var closest,
           i,
           direction = Math.random() * Math.PI * 2,
+          player = this.player,
+          agents = this.game.agents,
           agent,
           hitMargin,
           offBy,
+          hitCount = 0,
           sound;
 
       // who do we aim at?
       if (agents.length) {
         for (i = 0; i < agents.byDistance.length; i++) {
           agent = agents.byDistance[i];
-          if (agent == player || agent.dead)
+          if (agent === player || agent.dead)
             continue;
           closest = agent;
           break;
@@ -87,43 +284,47 @@
           direction += Math.PI * (Math.random() / 45 - 1 / 90); // off by up to 3 degrees
           for (i = 0; i < agents.byDistance.length; i++) {
             agent = agents.byDistance[i];
-            if (agent == player || agent.dead)
+            if (agent === player || agent.dead)
               continue;
             // will the shot hit this zombie?
             hitMargin = Math.abs(Math.atan2(agent.size / 4, agent.dist));
             offBy =  Math.abs(Math.atan2(agent.distY, agent.distX) - direction);
-            if (offBy < hitMargin)
+            if (offBy < hitMargin) {
+              hitCount++;
               agent.headshot();
+            }
           }
         }
       }
+      this.game.stats.addShotInfo(hitCount);
       direction = Tracker.prototype.normalizeDirection(direction + Math.PI);
       this.lastShot = {x: player.x, y: player.y, direction: direction, visibleTime: this.maxVisibleTime};
       this.shots--;
-      sound = this.sounds.fire[this.shots % 3];
+      sound = this.game.config.sounds.fire[this.shots % 3];
       sound.load();
       sound.play();
       this.disable(800, function() {
-        if (!colt.shots)
-          colt.reload();
+        if (!this.shots)
+          this.reload();
       });
     },
     reload: function() {
-      this.sounds.reload.load();
-      this.sounds.reload.play();
+      this.game.config.sounds.reload.load();
+      this.game.config.sounds.reload.play();
       this.disable(3000, function() {
-        colt.shots = 6;
+        this.shots = 6;
       });
     },
     disable: function(time, callback) {
       this.ready = false;
       setTimeout(function() {
-        if (!player.dead)
-          colt.ready = true;
-        callback();
-      }, time);
+        if (!this.player.dead)
+          this.ready = true;
+        callback.call(this);
+      }.bind(this), time);
     },
-    render: function(context) {
+    render: function(board) {
+      var context = board.context;
       if (this.lastShot && this.lastShot.visibleTime) {
         context.save();
         context.beginPath();
@@ -138,18 +339,19 @@
     }
   };
 
-  function Tracker(target) {
+  function Tracker(game, target) {
+    this.game = game;
     this.target = target;
   }
   Tracker.prototype = {
-    speed: 4,
+    speed: 3,
     size: 36,
     pursuitThreshold: 300,
     pursuitWobble: 20,
     patrolWobble: 30,
     patrolCorrection: 3,
     maxDecayTime: 80,
-    randomStart: function() {
+    randomStart: function(board) {
       var startPos = Math.random() * 2 * (board.width + board.height);
       if (startPos < board.width) {
         this.direction = Math.PI / 2;
@@ -168,7 +370,8 @@
         this.set(-this.size / 2, startPos - 2 * board.width - board.height);
       }
     },
-    render: function(context) {
+    render: function(board) {
+      var context = board.context;
       if (this.dead && !this.decayTime)
         return;
       if (this.decayTime || this.sleepTime) {
@@ -281,138 +484,78 @@
     }
   };
 
-  function Zombie(target){
-    Tracker.call(this, target);
+  function Zombie(game, target){
+    Tracker.call(this, game, target);
     this.sprite = 1 + Math.floor(Math.random() * 15);
-    this.randomStart();
+    this.randomStart(game.board);
   }
   Zombie.prototype = new Tracker;
 
-  var mouseTarget = {
-    x: board.width/2,
-    y: board.height/2,
+  function MouseTarget(board) {
+    this.x = board.width/2;
+    this.y = board.height/2;
+  }
+  MouseTarget.prototype = {
     caughtBy: function(){}
   };
 
-  var player = new Tracker(mouseTarget);
-  player.pursuitWobble = 0;
-  player.speed = 30;
-  player.sprite = 0;
-  player.set(mouseTarget.x, mouseTarget.y);
-  player.checkProximity = function() {
-    Tracker.prototype.checkProximity.call(this);
-    this.targetVisible = true;
-  };
-  player.caughtBy = function(tracker) {
-    this.dead = true;
-    colt.ready = false;
-    var zombie = new Zombie();
-    zombie.sprite = 0;
-    zombie.x = this.x;
-    zombie.y = this.y + 1; // js sort isn't stable, so we want the zombie consistently in the front during rest
-    zombie.sleepTime = 40;
-    agents.push(zombie);
-  };
-  player.directionKeys = {
-    37: 'W', // left
-    38: 'N', // up
-    39: 'E', // right
-    40: 'S', // down
-    65: 'W', // A
-    87: 'N', // W
-    68: 'E', // D
-    83: 'S'  // S
-  };
-  player.directionKeysPressed = {};
-  player.inferManualDirection = function() {
-    var directions = {};
-    for (key in this.directionKeysPressed) {
-      if (this.directionKeysPressed[key])
-        directions[this.directionKeys[key]] = true;
-    }
-    this.manualX = directions.E ^ directions.W ? (directions.E ? 1 : -1) : 0;
-    this.manualY = directions.S ^ directions.N ? (directions.S ? 1 : -1) : 0;
-  };
-  player.mouseMove = function() {
-    if (this.manual && !this.manualX && !this.manualY)
-      this.manual = false;
-  };
-  player.keyDown = function(key) {
-    if (!this.directionKeys[key])
-      return;
-    this.manual = true;
-    this.directionKeysPressed[key] = true;
-    this.inferManualDirection();
-  };
-  player.keyUp = function(key) {
-    if (!this.directionKeys[key])
-      return;
-    this.directionKeysPressed[key] = false;
-    this.inferManualDirection();
-  };
-  agents.push(player);
-
-  function runIt(board) {
-    var total = 50,
-        i,
-        agent,
-        numZombies;
-    if (agents.length < total + 1 && Math.random() * 80 < 1) {
-      numZombies = Math.min(Math.ceil(Math.random() * 5), total + 1 - agents.length);
-      for (i = 0; i < numZombies; i++) {
-        agents.push(new Zombie(player));
-      }
-    }
-    board.context.clearRect(0, 0, board.width, board.height);
-    agents.sort();
-    for (i = 0; i < agents.length; i++) {
-      // closest ones get to move first
-      agent = agents.byDistance[i];
-      if (!agent.nextMove()) {
-        agents.remove(agent);
-        i--;
-      }
-    }
-    for (i = 0; i < agents.byStacking.length; i++) {
-      agents.byStacking[i].render(board.context);
-    }
-    colt.render(board.context);
-    setTimeout(runIt.bind(this, board), 50);
+  function Player(game, mouseTarget) {
+    Tracker.call(this, game, mouseTarget);
+    this.set(this.target.x, this.target.y);
+    this.directionKeysPressed = {};
+    this.colt = new Colt(game, this);
   }
-
-  var $doc = $(document);
-  $doc.on('mousemove', function(e) {
-    mouseTarget.x = e.clientX + 20;
-    mouseTarget.y = e.clientY * 2 + 160;
-    player.mouseMove();
-  });
-  $doc.on('click', function(e) {
-    mouseTarget.x = e.clientX + 20;
-    mouseTarget.y = e.clientY * 2 + 160;
-    if (colt.ready) {
-      player.rest(5, true);
-      colt.fire();
+  Player.prototype = new Tracker;
+  $.extend(Player.prototype, {
+    pursuitWobble: 0,
+    speed: 15,
+    sprite: 0,
+    checkProximity: function() {
+      Tracker.prototype.checkProximity.call(this);
+      this.targetVisible = true;
+    },
+    caughtBy: function(tracker) {
+      this.dead = true;
+      this.colt.ready = false;
+      this.game.gameOver();
+    },
+    directionKeys: {
+      37: 'W', // left
+      38: 'N', // up
+      39: 'E', // right
+      40: 'S', // down
+      65: 'W', // A
+      87: 'N', // W
+      68: 'E', // D
+      83: 'S'  // S
+    },
+    inferManualDirection: function() {
+      var directions = {};
+      for (key in this.directionKeysPressed) {
+        if (this.directionKeysPressed[key])
+          directions[this.directionKeys[key]] = true;
+      }
+      this.manualX = directions.E ^ directions.W ? (directions.E ? 1 : -1) : 0;
+      this.manualY = directions.S ^ directions.N ? (directions.S ? 1 : -1) : 0;
+    },
+    mouseMove: function() {
+      if (this.manual && !this.manualX && !this.manualY)
+        this.manual = false;
+    },
+    keyDown: function(key) {
+      if (!this.directionKeys[key])
+        return;
+      this.manual = true;
+      this.directionKeysPressed[key] = true;
+      this.inferManualDirection();
+    },
+    keyUp: function(key) {
+      if (!this.directionKeys[key])
+        return;
+      this.directionKeysPressed[key] = false;
+      this.inferManualDirection();
     }
   });
 
-  $doc.on('keydown', function(e) {
-    if (!player.dead)
-      player.keyDown(e.which);
-  });
-  $doc.on('keyup', function(e) {
-    if (!player.dead) {
-      player.keyUp(e.which);
-    }
-  });
-  $doc.on('keypress', function(e) {
-    if (e.which == 32 && colt.ready) {
-      player.rest(5, true);
-      colt.fire();
-    }
-  });
-
-  var $window = $(window);
-  $window.on('resize', board.resize.bind(board));
-
-  runIt(board);
-})();
+  window.Zomgbie = Zomgbie;
+})($);

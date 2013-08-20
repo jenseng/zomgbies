@@ -13,6 +13,6 @@ A little zombie game written in JavaScript
 * blood
 * zombie sounds
 * player death sound
-* HUD
+* better HUD
+* high scores
 * moar sprites
-
