@@ -14,3 +14,4 @@ A little zombie game written in JavaScript
 * better HUD
 * high scores
 * moar sprites
+* moar weapons
