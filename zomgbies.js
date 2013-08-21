@@ -912,7 +912,7 @@
     },
     fire: function() {
       this.rest(5, true);
-      this.game.pursuitThreshold += this.game.config.pursuitThreshold;
+      this.game.pursuitThreshold = Math.min(this.game.pursuitThreshold + this.game.config.pursuitThreshold, 6 * this.game.config.pursuitThreshold);
       this.weapon.fire();
     },
     nextMove: function() {
