@@ -19,9 +19,7 @@
   </head>
   <body>
     <canvas></canvas>
-    <audio src="audio/colt.mp3" preload="auto" class="colt_sound"></audio>
-    <audio src="audio/colt.mp3" preload="auto" class="colt_sound"></audio>
-    <audio src="audio/colt.mp3" preload="auto" class="colt_sound"></audio>
+    <audio src="audio/colt.mp3" preload="auto" id="colt_sound"></audio>
     <audio src="audio/reload.m4a" preload="auto" id="reload_sound"></audio>
     <script src="zomgbies.js"></script>
     <script>
@@ -52,7 +50,7 @@
           },
           sprites: images,
           sounds: {
-            fire: $('.colt_sound'),
+            fire: $('#colt_sound')[0],
             reload: $('#reload_sound')[0]
           }
         }

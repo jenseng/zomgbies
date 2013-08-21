@@ -41,6 +41,7 @@
   Game.prototype = {
     config: {
       maxZombies: 100,
+      maxSpawnsPerTick: 5,
       pursuitThreshold: 200,
       patrolCorrection: 3,
       pursueTargets: true,
@@ -112,7 +113,7 @@
       var zombie,
           numZombies;
       if (this.agents.numZombies < this.config.maxZombies && Math.random() * 80 < 1) {
-        numZombies = Math.min(Math.ceil(Math.random() * 5), this.config.maxZombies - this.agents.numZombies);
+        numZombies = Math.min(Math.ceil(Math.random() * this.config.maxSpawnsPerTick), this.config.maxZombies - this.agents.numZombies);
         for (var i = 0; i < numZombies; i++) {
           zombie = new Zombie(this, this.player);
           zombie.randomEdgeStart(this.board);
@@ -354,16 +355,27 @@
       var currDir,
           currDist,
           currMove,
-          collision;
-      // try 8 directions at 4 decreasing speeds, starting w/ desired vector
+          collision,
+          factor = Math.random() > 0.5 ? 1 : -1; // so we alternate between left/right
+      // try 7 directions at 4 decreasing speeds, starting w/ desired vector
       for (var i = 0; i < 1; i++) {
         currDist = (4 - i) / 4 * distance;
-        for (var j = 0; j < 8; j++) {
-          // start with current bearing, then alternate 45deg left and right until we hit 180
-          currDir = normalizeDirection(direction + (j % 2 === 0 ? 1 : -1) * Math.round(j / 2 + 0.25) * Math.PI / 4);
+        for (var j = 0; j < 7; j++) {
+          // 0 / 45 / -45 / 90 / - 90
+          currDir = normalizeDirection(direction + factor * (j % 2 === 0 ? 1 : -1) * Math.round(j / 2 + 0.25) * Math.PI / 4);
           currMove = this.validMoveFor(agent, currDir, currDist);
-          if (currMove)
+          if (currMove) {
+            if (i > 0 || j > 0) {
+              if (agent.deviations > 2) { // don't want to ping pong forever, take a breather
+                agent.rest(parseInt(Math.random() * 20, 10), true);
+                break;
+              }
+              agent.deviations++;
+            } else {
+              agent.deviations = 0;
+            }
             return {direction: currDir, x: currMove.x, y: currMove.y};
+          }
         }
       }
       // then see if we already overlap (due to spawn/bug/whatever), and if so, flee nearest neighbor at 1/2 impulse (overlap be damned)
@@ -516,7 +528,7 @@
       direction = normalizeDirection(direction + Math.PI);
       this.lastShot = {x: player.x, y: player.y, direction: direction, visibleTime: this.maxVisibleTime};
       this.shots--;
-      sound = this.game.config.sounds.fire[this.shots % 3];
+      sound = this.game.config.sounds.fire;
       sound.load();
       sound.play();
       this.disable(800, function() {
@@ -562,9 +574,10 @@
   }
   Tracker.prototype = {
     size: 24,
-    pursuitWobble: 20,
+    pursuitWobble: 10,
     patrolWobble: 30,
     maxDecayTime: 80,
+    deviations: 0,
     randomStart: function(board) {
       this.direction = normalizeDirection(Math.random() * Math.PI * 2);
       this.set(Math.random() * board.width, Math.random() * board.height);
@@ -657,7 +670,7 @@
             var ticks = 10,
                 predictX = this.distX + this.target.speed * ticks * Math.cos(this.target.direction),
                 predictY = this.distY + this.target.speed * ticks * Math.sin(this.target.direction);
-            correction = this.predictFactor * (Math.atan2(predictY, predictX) - this.optimalDirection);
+            correction = this.predictFactor * normalizeDirection(Math.atan2(predictY, predictX) - this.optimalDirection);
             //console.log("fleeing " + this.optimalDirection + " + " + correction);
           } else { // try to intercept (not perfect, since speeds don't match, but zombies aren't *that* smart)
             correction = this.predictFactor * normalizeDirection(Math.PI - (this.target.direction - this.optimalDirection));
@@ -745,7 +758,7 @@
     Tracker.call(this, game, target);
     this.speed = (0.5 * (1 + Math.random()) * this.maxSpeed);
     this.sprite = 1 + Math.floor(Math.random() * 15);
-    this.predictFactor = Math.random();
+    this.predictFactor = Math.random() * Math.random();
   }
   Zombie.prototype = new Tracker;
   Zombie.prototype.maxSpeed = 6;
