@@ -41,13 +41,12 @@
   Game.prototype = {
     config: {
       maxZombies: 100,
-      maxSpawnsPerTick: 5,
+      maxSpawnsPerTick: 100,
       pursuitThreshold: 200,
       patrolCorrection: 3,
       pursueTargets: true,
-      player: {
-        weapons: ['colt'] // sword | grenade
-      }
+      mode: 'play',
+      weapons: ['colt'] // sword | grenade
     },
     addListeners: function() {
       var $doc = $(document);
@@ -67,21 +66,9 @@
       }.bind(this));
 
       if (this.player) {
-        $doc.on('keydown', function(e) {
-          if (!this.player.dead)
-            this.player.keyDown(e.which);
-        }.bind(this));
-
-        $doc.on('keyup', function(e) {
-          if (!this.player.dead) {
-            this.player.keyUp(e.which);
-          }
-        }.bind(this));
-
-        $doc.on('keypress', function(e) {
-          if (e.which == 32 && this.player.weapon.ready)
-            this.player.fire();
-        }.bind(this));
+        $doc.on('keydown', this.player.keyDown.bind(this.player));
+        $doc.on('keyup', this.player.keyUp.bind(this.player));
+        $doc.on('keypress', this.player.keyPress.bind(this.player));
       }
 
       if (this.config.resize) {
@@ -95,7 +82,7 @@
 
       this.agents.sort();
       if (this.player)
-        this.board.render(this.agents, this.player.weapon, this.stats);
+        this.board.render(this.agents, this.player.weapons, this.stats);
       else
         this.board.render(this.agents, this.mouseTarget);
       if (this.pursuitThreshold > this.config.pursuitThreshold)
@@ -165,7 +152,13 @@
       if (this.game.player && !this.game.player.dead)
         this.renderRadius();
       for (var i = 0; i < args.length; i++) {
-        args[i].render(this);
+        if (args[i].render) {
+          args[i].render(this);
+        } else {
+          for (var j = 0; j < args[i].length; j++) {
+            args[i][j].render(this);
+          }
+        }
       }
     }
   };
@@ -300,7 +293,7 @@
       if (this.game.config.debug)
         this.renderDebug(board);
       this.renderText(board, "kills: " + this.kills + "\nstreak: " + this.killStreak + " (" + this.maxKillStreak + ")\ncombo: " + this.maxCombo, 30, "left", "bottom");
-      this.renderText(board, "walkers: " + this.game.agents.numZombies + "\nshots: " + (player.weapon.shots ? player.weapon.shots : "..."), 30, "right", "bottom");
+      this.renderText(board, "walkers: " + this.game.agents.numZombies + "\nshots: " + (player.weapon.shots ? player.weapon.shots : "...") + (player.weapon.cache ? " / " + player.weapon.cache : ""), 30, "right", "bottom");
       if (this.statusTime) {
         context.font = "bold 36px sans-serif";
         context.globalAlpha = 0.6 * Math.min(1, 4 * this.statusTime / this.maxStatusTime);
@@ -478,17 +471,79 @@
     }
   };
 
-  function Colt(game, player){
+  function Weapon(game, player) {
     this.game = game;
     this.player = player;
   }
-  Colt.prototype = {
-    shots: 6,
+  Weapon.factory = function(name, game, player) {
+    var constructor = {
+      'colt': Colt,
+      'sword': Sword,
+      'grenade': Grenade
+    }[name];
+    return new constructor(game, player);
+  };
+  Weapon.prototype = {
     ready: true,
+    disable: function(time, callback) {
+      this.ready = false;
+      setTimeout(function() {
+        if (!this.player.dead)
+          this.ready = true;
+        callback.call(this);
+      }.bind(this), time);
+    },
+    closest: function() {
+      var closest = null,
+          agents = this.game.agents;
+      for (var i = 0; i < agents.byDistance.length; i++) {
+        agent = agents.byDistance[i];
+        if (agent === this.player || agent.dead)
+          continue;
+        closest = agent;
+        break;
+      }
+      return closest;
+    }
+  };
+
+  function Grenade(game, player) {
+    Weapon.call(this, game, player);
+  }
+  Grenade.prototype = new Weapon;
+  $.extend(Grenade.prototype, {
+    fire: function() {
+    },
+    render: function(board) {
+    }
+  });
+
+  function Sword(game, player) {
+    Weapon.call(this, game, player);
+  }
+  Sword.prototype = new Weapon;
+  $.extend(Sword.prototype, {
+    shots: '∞',
+    fire: function() {
+    },
+    render: function(board) {
+    }
+  });
+
+  function Colt(game, player){
+    Weapon.call(this, game, player);
+    this.sounds = {
+      fire: $('<audio src="audio/colt.mp3" preload="auto"></audio>')[0],
+      reload: $('<audio src="audio/reload.m4a" preload="auto"></audio>')[0]
+    };
+  }
+  Colt.prototype = new Weapon;
+  $.extend(Colt.prototype, {
+    shots: 6,
+    cache: '∞',
     maxVisibleTime: 5,
     fire: function() {
-      var closest,
-          i,
+      var closest = this.closest(),
           direction = Math.random() * Math.PI * 2,
           player = this.player,
           agents = this.game.agents,
@@ -498,29 +553,19 @@
           hitCount = 0,
           sound;
 
-      // who do we aim at?
-      if (agents.length) {
-        for (i = 0; i < agents.byDistance.length; i++) {
+      if (closest) {
+        direction = Math.atan2(closest.distY, closest.distX);
+        direction += Math.PI * (Math.random() / 45 - 1 / 90); // off by up to 3 degrees
+        for (var i = 0; i < agents.byDistance.length; i++) {
           agent = agents.byDistance[i];
           if (agent === player || agent.dead)
             continue;
-          closest = agent;
-          break;
-        }
-        if (closest) {
-          direction = Math.atan2(closest.distY, closest.distX);
-          direction += Math.PI * (Math.random() / 45 - 1 / 90); // off by up to 3 degrees
-          for (i = 0; i < agents.byDistance.length; i++) {
-            agent = agents.byDistance[i];
-            if (agent === player || agent.dead)
-              continue;
-            // will the shot hit this zombie?
-            hitMargin = Math.abs(Math.atan2(agent.size / 4, agent.dist));
-            offBy =  Math.abs(Math.atan2(agent.distY, agent.distX) - direction);
-            if (offBy < hitMargin) {
-              hitCount++;
-              agent.headshot();
-            }
+          // will the shot hit this zombie?
+          hitMargin = Math.abs(Math.atan2(agent.size / 4, agent.dist));
+          offBy =  Math.abs(Math.atan2(agent.distY, agent.distX) - direction);
+          if (offBy < hitMargin) {
+            hitCount++;
+            agent.headshot();
           }
         }
       }
@@ -528,28 +573,19 @@
       direction = normalizeDirection(direction + Math.PI);
       this.lastShot = {x: player.x, y: player.y, direction: direction, visibleTime: this.maxVisibleTime};
       this.shots--;
-      sound = this.game.config.sounds.fire;
-      sound.load();
-      sound.play();
+      this.sounds.fire.load();
+      this.sounds.fire.play();
       this.disable(800, function() {
         if (!this.shots)
           this.reload();
       });
     },
     reload: function() {
-      this.game.config.sounds.reload.load();
-      this.game.config.sounds.reload.play();
+      this.sounds.reload.load();
+      this.sounds.reload.play();
       this.disable(3000, function() {
         this.shots = 6;
       });
-    },
-    disable: function(time, callback) {
-      this.ready = false;
-      setTimeout(function() {
-        if (!this.player.dead)
-          this.ready = true;
-        callback.call(this);
-      }.bind(this), time);
     },
     render: function(board) {
       var context = board.context;
@@ -565,7 +601,7 @@
         this.lastShot.visibleTime--;
       }
     }
-  };
+  });
 
   function Tracker(game, target) {
     this.game = game;
@@ -585,6 +621,7 @@
     randomEdgeStart: function(board) {
       var sprite = this.game.config.sprites[this.sprite],
           startPos = Math.random() * 2 * (board.width + board.height);
+      startPos = Math.random() * (board.width / 2);
       if (startPos < board.width) {
         this.direction = Math.PI / 2;
         this.set(startPos, 0);
@@ -796,7 +833,12 @@
     Tracker.call(this, game, mouseTarget);
     this.set(this.target.x, this.target.y);
     this.directionKeysPressed = {};
-    this.weapon = new Colt(game, this);
+    this.weapons = [];
+    var weaponNames = game.config.weapons;
+    for (var i = 0; i < weaponNames.length; i++) {
+      this.weapons.push(Weapon.factory(weaponNames[i], game, this));
+    }
+    this.weapon = this.weapons[0];
   }
   Player.prototype = new Tracker;
   $.extend(Player.prototype, {
@@ -835,18 +877,28 @@
       if (this.manual && !this.manualX && !this.manualY)
         this.manual = false;
     },
-    keyDown: function(key) {
-      if (!this.directionKeys[key])
+    keyDown: function(e) {
+      var key = e.which;
+      if (this.dead || !this.directionKeys[key])
         return;
       this.manual = true;
       this.directionKeysPressed[key] = true;
       this.inferManualDirection();
     },
-    keyUp: function(key) {
-      if (!this.directionKeys[key])
+    keyUp: function(e) {
+      var key = e.which;
+      if (this.dead || !this.directionKeys[key])
         return;
       this.directionKeysPressed[key] = false;
       this.inferManualDirection();
+    },
+    keyPress: function(e) {
+      var key = e.which;
+      if (this.dead)
+        return;
+      if (e.which == 32 && this.player.weapon.ready) {
+        this.fire();
+      }
     },
     fire: function() {
       this.rest(5, true);

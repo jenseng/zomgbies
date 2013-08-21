@@ -15,12 +15,11 @@
         height: 100%;
       }
     </style>
+    <meta charset='utf-8'>
     <script src="http://ajax.googleapis.com/ajax/libs/jquery/2.0.2/jquery.min.js"></script>
   </head>
   <body>
     <canvas></canvas>
-    <audio src="audio/colt.mp3" preload="auto" id="colt_sound"></audio>
-    <audio src="audio/reload.m4a" preload="auto" id="reload_sound"></audio>
     <script src="zomgbies.js"></script>
     <script>
       var images = [];
@@ -48,11 +47,7 @@
               "People like you, the good people, they always die"
             ]
           },
-          sprites: images,
-          sounds: {
-            fire: $('#colt_sound')[0],
-            reload: $('#reload_sound')[0]
-          }
+          sprites: images
         }
       );
     </script>
