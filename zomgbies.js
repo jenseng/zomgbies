@@ -813,18 +813,28 @@
     render: function(board) {
       var context = board.context,
           radius = Math.min(board.canvas.width, board.canvas.height) / 5,
+          eyeOffset = 0.7,
+          gradient,
           x = this.x,
           y = this.y / 2;
       this.mask.width = board.canvas.width;
       this.mask.height = board.canvas.height;
       this.maskContext.clearRect(0, 0, this.mask.width, this.mask.height);
-      this.maskContext.fillStyle = '#000';
-      this.maskContext.fillRect(0, 0, this.mask.width, this.mask.height);
-      this.maskContext.globalCompositeOperation = 'xor';
-      this.maskContext.fillStyle = '#fff';
-      this.maskContext.arc(x - 0.8 * radius, y, radius, 0, 2 * Math.PI);
-      this.maskContext.arc(x + 0.8 * radius, y, radius, 0, 2 * Math.PI);
+      gradient = this.maskContext.createRadialGradient(x - eyeOffset * radius, y, radius * 0.9, x - eyeOffset * radius, y, radius);
+      gradient.addColorStop(0, 'rgba(0,0,0,0.95)');
+      gradient.addColorStop(1, 'rgba(0,0,0,0)');
+      this.maskContext.fillStyle = gradient;
+      this.maskContext.arc(x - eyeOffset * radius, y, radius, 0, 2 * Math.PI);
       this.maskContext.fill();
+      gradient = this.maskContext.createRadialGradient(x + eyeOffset * radius, y, radius * 0.9, x + eyeOffset * radius, y, radius);
+      gradient.addColorStop(0, 'rgba(0,0,0,0.95)');
+      gradient.addColorStop(1, 'rgba(0,0,0,0)');
+      this.maskContext.fillStyle = gradient;
+      this.maskContext.arc(x + eyeOffset * radius, y, radius, 0, 2 * Math.PI);
+      this.maskContext.fill();
+      this.maskContext.globalCompositeOperation = 'xor';
+      this.maskContext.fillStyle = 'rgba(0,0,0,1)';
+      this.maskContext.fillRect(0, 0, this.mask.width, this.mask.height);
       context.drawImage(this.mask, 0, 0);
     }
   };
