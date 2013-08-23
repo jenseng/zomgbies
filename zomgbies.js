@@ -4,6 +4,47 @@
   var pixelsPerMeter = 36;
   var gravity = 9.8 * pixelsPerMeter;
 
+  // totally useless "accessibility"
+  var $status = $("<div>", {style: "position: relative; z-index: -1; overflow: hidden; width: 0; height: 0;", "aria-live": "polite", "role": "log"}).appendTo($(document.body));
+  var lastRead;
+  function read(text) {
+    var now = new Date().getTime();
+    if (!lastRead || now > lastRead + 1000) {
+      lastRead = now;
+      $status.text(text);
+    }
+  }
+
+  function pick() {
+    return arguments[Math.floor(Math.random() * arguments.length)];
+  }
+
+  function makeObservation() {
+    read(pick(
+      "this is terrifying",
+      "you're not doing very well",
+      "this is hard to watch",
+      "not bad",
+      "pro tip: kill the zombies",
+      "nicely done",
+      "watch out",
+      "look out",
+      "here they come",
+      "lol",
+      "wow",
+      "haha",
+      "that was amazing",
+      "good job",
+      "gotta be quick",
+      "you've got this",
+      "you're a natural",
+      "does my voice sound weird to you?",
+      "i've got a bad feeling about this",
+      "nice shooting, tex"));
+    setTimeout(makeObservation, 5000 + 1000 * Math.floor(Math.random() * 20));
+  }
+  setTimeout(makeObservation, 10000);
+
   function normalizeDirection(direction) {
     if (direction > Math.PI)
       direction -= 2 * Math.PI;
@@ -21,7 +62,7 @@
   }
 
   function sectorCoord(n) {
-    return parseInt(n / sectorSize, 10);
+    return Math.floor(n / sectorSize);
   }
 
   function sector() {
@@ -51,13 +92,13 @@
     this.addListeners($canvas);
 
     this.pursuitThreshold = this.config.pursuitThreshold;
-    this.tickTime = parseInt(1000 / this.config.ticksPerSecond, 10);
+    this.tickTime = Math.floor(1000 / this.config.ticksPerSecond);
   };
   Game.prototype = {
     config: {
       ticksPerSecond: 30,
       maxZombies: 100,
-      maxSpawnsPerTick: 100,
+      maxSpawnsPerTick: 5,
       pursuitThreshold: 200,
       patrolCorrection: 3,
       pursueTargets: true,
@@ -120,6 +161,14 @@
           numZombies;
       if (this.agents.numZombies < this.config.maxZombies && Math.random() * 80 < 1) {
         numZombies = Math.min(Math.ceil(Math.random() * this.config.maxSpawnsPerTick), this.config.maxZombies - this.agents.numZombies);
+        if (Math.random() < 0.2) {
+          if (numZombies === 1)
+            read(this.agents.numZombies === 0 ? "zombie" : pick("another zombie", "yet another", "zombie", "walker"));
+          else if (numZombies < 4)
+            read(pick("zombies", "here they come", "here come a couple", "yikes"));
+          else
+            read(pick("uh oh", "damn", "oh no", "damn", "oh crap a lot of zombies", "here comes the horde", "whoa that's a lot", "they just keep coming"));
+        }
         for (var i = 0; i < numZombies; i++) {
           zombie = new Zombie(this, this.player);
           zombie.randomEdgeStart(this.board);
@@ -129,7 +178,10 @@
     },
     gameOver: function() {
       var messages = this.config.messages.gameOver;
-      this.stats.setStatus(messages[parseInt(messages.length * Math.random(), 10)]);
+      var message = pick.apply(window, messages);
+      read("game over. " + message);
+      read = function(){};
+      this.stats.setStatus(message);
     },
     noise: function() {
       this.pursuitThreshold = Math.min(this.pursuitThreshold + this.config.pursuitThreshold, 6 * this.config.pursuitThreshold);
@@ -375,7 +427,7 @@
           if (currMove) {
             if (i > 0 || j > 0) {
               if (agent.deviations > 2) { // don't want to ping pong forever, take a breather
-                agent.rest(parseInt(Math.random() * 20, 10), true);
+                agent.rest(Math.floor(Math.random() * 20), true);
                 break;
               }
               agent.deviations++;
@@ -595,25 +647,39 @@
 
       // TODO maybe if close enough, bean zombie in head?
       // TODO throw sound
+      if (Math.random() < 0.25)
+        read(pick("nice throw", "good arm", "good throw", "nice", "you're nolan ryan"));
     },
     explode: function() {
       // TODO explode sound
       if (!this.thrown) { // oh crap, didn't throw it!
+        this.thrown = true;
         this.x = this.player.x;
         this.y = this.player.y;
+        this.z = 0;
         this.game.agents.push(this);
       }
+      this.speed = 0;
+      this.zSpeed = 0;
       var neighbors = this.game.agents.neighbors(this, this.stunZone),
           neighbor,
-          dist;
+          dist,
+          hitCount = 0;
+
       for (var i = 0; i < neighbors.length; i++) {
         neighbor = neighbors[i];
         dist = distance(this, neighbor);
-        if (dist < this.killZone)
+        if (dist < this.killZone) {
+          hitCount++;
           neighbor.kill();
+        }
         else if (dist < this.stunZone)
           neighbor.stun(80 * (1 - dist / this.stunZone));
       }
+      if (hitCount === 0)
+        read(pick("waste", "total waste", "got nothin", "next time", "do you even aim bro?"))
+      else
+        read(pick("hahaha", "awesome, " + hitCount, "got " + hitCount, "haha, you blew up " + hitCount, "ha, got " + hitCount, "that'll teach them", "it's raining arms", "i love grenades"));
       this.exploded = true;
       this.explodeTime = 15;
     },
@@ -657,12 +723,12 @@
           y -= (1 - this.explodeTime / 15) * 200;
           context.arc(this.x + x, this.y / 2 - this.z + y, rad, 0, 2 * Math.PI);
           var gray = (1 - fade) * (96 + Math.random() * 128);
-          var r = parseInt(gray + fade * 255, 10);
-          var g = parseInt(gray + fade * (192 + Math.random() * 64), 10);
-          var b = parseInt(gray + fade * (Math.random() * 128), 10);
+          var r = Math.floor(gray + fade * 255);
+          var g = Math.floor(gray + fade * (192 + Math.random() * 64));
+          var b = Math.floor(gray + fade * (Math.random() * 128));
           context.fillStyle = 'rgba(' + r + ',' + g + ',' + b + ',1)';
           context.fill();
-          context.strokeStyle = 'rgba(' + parseInt(r*0.9) + ',' + parseInt(g*0.9) + ',' + parseInt(b*0.9) + ',1)';
+          context.strokeStyle = 'rgba(' + Math.floor(r*0.9) + ',' + Math.floor(g*0.9) + ',' + Math.floor(b*0.9) + ',1)';
           context.stroke();
         }
         context.restore();
@@ -763,6 +829,7 @@
       direction = normalizeDirection(direction + Math.PI);
       this.lastShot = {x: player.x, y: player.y, direction: direction, visibleTime: this.maxVisibleTime};
       this.shots--;
+      read(hitCount === 0 ? pick("miss", "whiff", "so close", "next time") : hitCount === 1 ? pick("nice shot", "got one", "got 'em", "haha", "headshot") : pick("oh wow", "got " + hitCount, "mega kill", hitCount + " for 1", "haha, amazing"));
       this.sounds.fire.load();
       this.sounds.fire.play();
       this.disable(800, function() {
@@ -771,6 +838,7 @@
       });
     },
     reload: function() {
+      read(pick("reload quick", "quick", "hurry", "c'mon", "let's go", "faster", "oh man"));
       this.sounds.reload.load();
       this.sounds.reload.play();
       this.disable(3000, function() {
@@ -975,7 +1043,7 @@
       this.decayTime = this.maxDecayTime;
     },
     stun: function(time) {
-      this.sleepTime = parseInt(time, 10);
+      this.sleepTime = Math.floor(time);
     },
     projectedLocation: function(time) {
       var ticks = time / this.game.tickTime,

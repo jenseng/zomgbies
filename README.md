@@ -7,11 +7,20 @@ A little zombie game written in JavaScript
 ## TODO
 
 * chance to knock over zombie if just grazed (not full on collision)
-* gunshot animation
-* blood
-* zombie sounds
-* player death sound
+* requestAnimationFrame, decouple ticks
 * better HUD
 * high scores
 * moar sprites
-* moar weapons
+* tracking
+  * have zombies track explosion for a few seconds
+* sounds
+  * zombies
+  * grenades (pin, throw, thud, explode)
+* animations
+  * better grenade and explosion
+  * gunshot
+  * blood
+* weapons
+  * sword
+  * flamethrower
+* ai mode (watch through binoculars)
