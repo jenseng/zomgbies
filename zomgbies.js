@@ -69,6 +69,13 @@
     return sectorCoord(this.x) + ":" + sectorCoord(this.y);
   }
 
+  function sum(array) {
+    var sum = 0;
+    for (var i = 0; i < array.length; i++)
+      sum += array[i];
+    return sum;
+  }
+
   var Zomgbie = function($canvas, options){
     new Game($canvas, options).run();
   };
@@ -136,18 +143,36 @@
         $window.on('resize', this.board.resize.bind(this.board));
       }
     },
+    times: {tick: [], run: [], render: []},
+    time: function(label, code) {
+      var start = new Date().getTime();
+      code.call(this);
+      var times = this.times[label];
+      if (times.length > 100)
+        times.shift();
+      times.push(new Date().getTime() - start);
+    },
     run: function() {
-      this.maybeAddZombies();
-      this.agents.move();
+      if (!this.times.nextTick)
+        this.times.nextTick = this.times.started = new Date().getTime();
+      this.times.nextTick += this.tickTime;
 
-      this.agents.sort();
-      if (this.player)
-        this.board.render(this.agents, this.player.weapons, this.stats);
-      else
-        this.board.render(this.agents, this.mouseTarget);
+      this.time('run', function() {
+        this.maybeAddZombies();
+        this.agents.move();
+
+        this.agents.sort();
+      });
+
+      this.time('render', function() {
+        if (this.player)
+          this.board.render(this.agents, this.player.weapons, this.stats);
+        else
+          this.board.render(this.agents, this.mouseTarget);
+      });
       if (this.pursuitThreshold > this.config.pursuitThreshold)
         this.pursuitThreshold -= 2;
-      setTimeout(this.run.bind(this), this.tickTime);
+      setTimeout(this.run.bind(this), this.times.nextTick - new Date().getTime());
     },
     addAllZombies: function() {
       for (var i = 0; i < this.config.maxZombies; i++) {
@@ -330,15 +355,14 @@
     renderDebug: function(board) {
       var sectors = this.game.agents.sectors;
           sectorCount = 0;
-          sectorAgents = 0;
-      for (var sector in sectors) {
+      for (var sector in sectors)
         sectorCount++;
-        sectorAgents += sectors[sector].length;
-      }
       this.renderText(
         board,
-        "sectors: " + sectorCount +
-        "\nagents: " + sectorAgents,
+        "sectors: " + sectorCount + "\n" +
+        "agents: " + this.game.agents.length + "\n" +
+        "run: " + (sum(this.game.times.run) / this.game.tickTime).toFixed(2) + "%\n" +
+        "render: " + (sum(this.game.times.render) / this.game.tickTime).toFixed(2) + "%",
         30,
         "left",
         "top");
@@ -677,7 +701,7 @@
           neighbor.stun(80 * (1 - dist / this.stunZone));
       }
       if (hitCount === 0)
-        read(pick("waste", "total waste", "got nothin", "next time", "do you even aim bro?"))
+        read(pick("waste", "total waste", "got nothin", "next time", "do you even aim bro?"));
       else
         read(pick("hahaha", "awesome, " + hitCount, "got " + hitCount, "haha, you blew up " + hitCount, "ha, got " + hitCount, "that'll teach them", "it's raining arms", "i love grenades"));
       this.exploded = true;
@@ -1214,7 +1238,7 @@
     nextWeapon: function() {
       this.weapons.push(this.weapons.shift());
       this.weapon = this.weapons[0];
-    },
+    }
   });
 
   window.Zomgbie = Zomgbie;
