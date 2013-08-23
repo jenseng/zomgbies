@@ -1,6 +1,8 @@
 (function($) {
 
   var sectorSize = 48;
+  var pixelsPerMeter = 36;
+  var gravity = 9.8 * pixelsPerMeter;
 
   function normalizeDirection(direction) {
     if (direction > Math.PI)
@@ -10,8 +12,20 @@
     return direction;
   }
 
+  function hypotenuse(a, b) {
+    return Math.sqrt(a * a + b * b);
+  }
+
+  function distance(a, b) {
+    return hypotenuse(b.x - a.x, b.y - a.y);
+  }
+
   function sectorCoord(n) {
     return parseInt(n / sectorSize, 10);
+  }
+
+  function sector() {
+    return sectorCoord(this.x) + ":" + sectorCoord(this.y);
   }
 
   var Zomgbie = function($canvas, options){
@@ -37,38 +51,43 @@
     this.addListeners($canvas);
 
     this.pursuitThreshold = this.config.pursuitThreshold;
+    this.tickTime = parseInt(1000 / this.config.ticksPerSecond, 10);
   };
   Game.prototype = {
     config: {
+      ticksPerSecond: 30,
       maxZombies: 100,
       maxSpawnsPerTick: 100,
       pursuitThreshold: 200,
       patrolCorrection: 3,
       pursueTargets: true,
       mode: 'play',
-      weapons: ['colt'] // sword | grenade
+      weapons: ['colt'] // sword | grenades
     },
     addListeners: function() {
       var $doc = $(document);
 
       this.$canvas.on('mousemove', function(e) {
-        this.mouseTarget.x = e.clientX + 20;
-        this.mouseTarget.y = e.clientY * 2 + 160;
+        this.mouseTarget.set(e.clientX + 20, e.clientY * 2 + 160);
         if (this.player)
           this.player.mouseMove();
       }.bind(this));
 
-      this.$canvas.on('click', function(e) {
-        this.mouseTarget.x = e.clientX + 20;
-        this.mouseTarget.y = e.clientY * 2 + 160;
-        if (this.player && this.player.weapon.ready)
-          this.player.fire();
+      this.$canvas.on('mousedown', function(e) {
+        this.mouseTarget.set(e.clientX + 20, e.clientY * 2 + 160);
+        if (this.player)
+          this.player.mouseDown();
+      }.bind(this));
+
+      this.$canvas.on('mouseup', function(e) {
+        this.mouseTarget.set(e.clientX + 20, e.clientY * 2 + 160);
+        if (this.player)
+          this.player.mouseUp();
       }.bind(this));
 
       if (this.player) {
         $doc.on('keydown', this.player.keyDown.bind(this.player));
         $doc.on('keyup', this.player.keyUp.bind(this.player));
-        $doc.on('keypress', this.player.keyPress.bind(this.player));
       }
 
       if (this.config.resize) {
@@ -87,7 +106,7 @@
         this.board.render(this.agents, this.mouseTarget);
       if (this.pursuitThreshold > this.config.pursuitThreshold)
         this.pursuitThreshold -= 2;
-      setTimeout(this.run.bind(this), 33);
+      setTimeout(this.run.bind(this), this.tickTime);
     },
     addAllZombies: function() {
       for (var i = 0; i < this.config.maxZombies; i++) {
@@ -109,15 +128,11 @@
       }
     },
     gameOver: function() {
-      var zombie = new Zombie(this);
-      window.zombie = zombie;
-      zombie.sprite = 0;
-      zombie.direction = 0;
-      zombie.set(this.player.x, this.player.y + 1); // js sort isn't stable, so we want the zombie consistently in the front during rest
-      zombie.sleepTime = 40;
-      this.agents.push(zombie);
       var messages = this.config.messages.gameOver;
       this.stats.setStatus(messages[parseInt(messages.length * Math.random(), 10)]);
+    },
+    noise: function() {
+      this.pursuitThreshold = Math.min(this.pursuitThreshold + this.config.pursuitThreshold, 6 * this.config.pursuitThreshold);
     }
   };
 
@@ -293,7 +308,7 @@
       if (this.game.config.debug)
         this.renderDebug(board);
       this.renderText(board, "kills: " + this.kills + "\nstreak: " + this.killStreak + " (" + this.maxKillStreak + ")\ncombo: " + this.maxCombo, 30, "left", "bottom");
-      this.renderText(board, "walkers: " + this.game.agents.numZombies + "\nshots: " + (player.weapon.shots ? player.weapon.shots : "...") + (player.weapon.cache ? " / " + player.weapon.cache : ""), 30, "right", "bottom");
+      this.renderText(board, "walkers: " + this.game.agents.numZombies + "\n< weapon: " + player.weapon.name + " >\nammo: " + (player.weapon.shots ? player.weapon.shots : "...") + (player.weapon.cache ? " / " + player.weapon.cache : ""), 30, "right", "bottom");
       if (this.statusTime) {
         context.font = "bold 36px sans-serif";
         context.globalAlpha = 0.6 * Math.min(1, 4 * this.statusTime / this.maxStatusTime);
@@ -351,7 +366,7 @@
           collision,
           factor = Math.random() > 0.5 ? 1 : -1; // so we alternate between left/right
       // try 7 directions at 4 decreasing speeds, starting w/ desired vector
-      for (var i = 0; i < 1; i++) {
+      for (var i = 0; i < 4; i++) {
         currDist = (4 - i) / 4 * distance;
         for (var j = 0; j < 7; j++) {
           // 0 / 45 / -45 / 90 / - 90
@@ -367,7 +382,12 @@
             } else {
               agent.deviations = 0;
             }
-            return {direction: currDir, x: currMove.x, y: currMove.y};
+            return {
+              distance: currDist,
+              direction: currDir,
+              x: currMove.x,
+              y: currMove.y
+            };
           }
         }
       }
@@ -376,6 +396,7 @@
       if (collision) {
         currDir = normalizeDirection(Math.PI + collision.direction);
         return {
+          distance: distance,
           direction: currDir,
           x: agent.x + 0.5 * distance * Math.cos(currDir),
           y: agent.y + 0.5 * distance * Math.sin(currDir)
@@ -385,7 +406,7 @@
       return null;
     },
     closestCollision: function(agent) {
-      var neighbors = this.neighborsFor(sectorCoord(agent.x), sectorCoord(agent.y), agent),
+      var neighbors = this.neighbors(agent),
           collision,
           closest;
       for (var i = 0; i < neighbors.length; i++) {
@@ -393,7 +414,7 @@
         if (collision && (!closest || collision.dist < closest.dist))
           closest = collision;
       }
-      return collision;
+      return closest;
     },
     validMoveFor: function(agent, direction, distance) {
       var x = agent.x + distance * Math.cos(direction),
@@ -409,15 +430,19 @@
       }
       return {x: x, y: y};
     },
-    neighborsFor: function(x, y, agent) {
+    neighbors: function(agent, distance) {
+      return this.neighborsFor(sectorCoord(agent.x), sectorCoord(agent.y), agent, distance);
+    },
+    neighborsFor: function(x, y, agent, distance) {
+      distance = distance === null || typeof distance === 'undefined' ? 1 : Math.ceil(distance / sectorSize);
       var neighbors = [],
           sector;
-      for (var i = -1; i <= 1; i++) {
-        for (var j = -1; j <= 1; j++) {
+      for (var i = -distance; i <= distance; i++) {
+        for (var j = -distance; j <= distance; j++) {
           sector = this.sectors[(x + i) + ":" + (y + j)];
           if (!sector) continue;
           for (var n = 0; n < sector.length; n++) {
-            if (sector[n] === agent || sector[n] === this.game.player || sector[n].dead) continue;
+            if (sector[n] === agent || sector[n] === agent.target || sector[n].dead || sector[n].object) continue;
             neighbors.push(sector[n]);
           }
         }
@@ -458,7 +483,7 @@
         if (!agent.nextMove()) {
           this.remove(agent);
           i--;
-        } else if (!agent.dead && agent !== this.game.player) {
+        } else if (!agent.dead && agent.zombie) {
           numZombies++;
         }
       }
@@ -479,9 +504,11 @@
     var constructor = {
       'colt': Colt,
       'sword': Sword,
-      'grenade': Grenade
+      'grenades': Grenades
     }[name];
-    return new constructor(game, player);
+    var weapon = new constructor(game, player);
+    weapon.name = name;
+    return weapon;
   };
   Weapon.prototype = {
     ready: true,
@@ -495,26 +522,187 @@
     },
     closest: function() {
       var closest = null,
-          agents = this.game.agents;
+          agents = this.game.agents,
+          agent;
       for (var i = 0; i < agents.byDistance.length; i++) {
         agent = agents.byDistance[i];
-        if (agent === this.player || agent.dead)
+        if (agent.dead || !agent.zombie)
           continue;
         closest = agent;
         break;
       }
       return closest;
-    }
+    },
+    render: function() {},
+    nextMove: function() {},
+    fire: function() {},
+    fired: function() {}
   };
 
-  function Grenade(game, player) {
-    Weapon.call(this, game, player);
+  function Grenade(game) {
+    this.game = game;
+    this.player = game.player;
+    this.pulledPin = new Date().getTime();
+    this.gravityPerTick = gravity / game.config.ticksPerSecond;
+    // TODO pin sound
+    setTimeout(this.explode.bind(this), this.timeToExplode);
   }
-  Grenade.prototype = new Weapon;
-  $.extend(Grenade.prototype, {
-    fire: function() {
+  Grenade.prototype = {
+    timeToExplode: 1500,
+    killZone: 100,
+    stunZone: 200,
+    speed: 64,
+    decel: 12, // when it hits the ground
+    object: true,
+    distance: 0,
+    throwAt: function(target) {
+      if (this.exploded)
+        return;
+
+      var optimalSpeed,
+          optimalSpeedSide,
+          inertia, // directional component of player's inertia (i.e. you can throw further in the direction you are going)
+          relativeOptimalSpeed, // from the perspective of the player
+          maxSpeed;
+
+      this.thrown = true;
+      this.x = this.player.x;
+      this.y = this.player.y;
+      this.z = 64; // shoulder height
+      this.game.agents.push(this);
+
+      if (target) {
+        var time = (this.timeToExplode + this.pulledPin - new Date().getTime());
+        var orig = target;
+        target = target.projectedLocation(this.timeToExplode + this.pulledPin - new Date().getTime());
+        var distX = target.x - this.x;
+        var distY = target.y - this.y;
+        var dist = hypotenuse(distX, distY);
+        optimalSpeed = Math.sqrt(dist * this.gravityPerTick) * 0.9; // fudge factor due to drop and roll
+        this.direction = Math.atan2(distY, distX);
+      } else { // no target, just throw it far
+        optimalSpeed = this.speed;
+        this.direction = normalizeDirection(Math.random() * 2 * Math.PI);
+      }
+      optimalSpeedSide = optimalSpeed / Math.sqrt(2); // get the v/h speed (same, since 45 deg is optimal)
+      inertia = this.player.currentSpeed * Math.cos(this.player.direction - this.direction);
+      relativeOptimalSpeed = hypotenuse(optimalSpeedSide, optimalSpeedSide - inertia);
+      maxSpeed = this.speed * (optimalSpeed / relativeOptimalSpeed);
+      if (optimalSpeed > maxSpeed)
+        optimalSpeedSide *= maxSpeed / optimalSpeed;
+      this.zSpeed = optimalSpeedSide;
+      this.speed = optimalSpeedSide;
+
+      // TODO maybe if close enough, bean zombie in head?
+      // TODO throw sound
+    },
+    explode: function() {
+      // TODO explode sound
+      if (!this.thrown) { // oh crap, didn't throw it!
+        this.x = this.player.x;
+        this.y = this.player.y;
+        this.game.agents.push(this);
+      }
+      var neighbors = this.game.agents.neighbors(this, this.stunZone),
+          neighbor,
+          dist;
+      for (var i = 0; i < neighbors.length; i++) {
+        neighbor = neighbors[i];
+        dist = distance(this, neighbor);
+        if (dist < this.killZone)
+          neighbor.kill();
+        else if (dist < this.stunZone)
+          neighbor.stun(80 * (1 - dist / this.stunZone));
+      }
+      this.exploded = true;
+      this.explodeTime = 15;
+    },
+    nextMove: function() {
+      if (this.speed > 0) {
+        this.z += this.zSpeed;
+        if (this.z <= 0) {
+          if (this.gravityPerTick) {
+            // TODO hit ground sound
+            this.gravityPerTick = 0;
+          }
+          this.z = 0;
+          this.speed -= this.decel;
+          if (this.speed < 0) this.speed = 0;
+        }
+        else {
+          this.zSpeed -= this.gravityPerTick;
+        }
+        this.x += this.speed * Math.cos(this.direction);
+        this.y += this.speed * Math.sin(this.direction);
+      }
+      if (this.explodeTime) this.explodeTime--;
+      return !this.exploded || this.explodeTime;
     },
     render: function(board) {
+      var context = board.context;
+      if (this.exploded) {
+        context.save();
+        var fade = this.explodeTime < 12 ? this.explodeTime / 12 : 1;
+        fade = fade*fade*fade;
+        context.globalAlpha = fade;
+        var size = this.explodeTime > 13 ?
+          5 * (16 - this.explodeTime):
+          10 + this.explodeTime / 2;
+        var circles = size * 2;
+        for (var i = 0; i < circles; i++) {
+          context.beginPath();
+          var rad = (1 + 4 * Math.random()) * size;
+          var x = (5 - 10 * Math.random()) * size;
+          var y = (1 - 4 * Math.random()) * size;
+          y -= (1 - this.explodeTime / 15) * 200;
+          context.arc(this.x + x, this.y / 2 - this.z + y, rad, 0, 2 * Math.PI);
+          var gray = (1 - fade) * (96 + Math.random() * 128);
+          var r = parseInt(gray + fade * 255, 10);
+          var g = parseInt(gray + fade * (192 + Math.random() * 64), 10);
+          var b = parseInt(gray + fade * (Math.random() * 128), 10);
+          context.fillStyle = 'rgba(' + r + ',' + g + ',' + b + ',1)';
+          context.fill();
+          context.strokeStyle = 'rgba(' + parseInt(r*0.9) + ',' + parseInt(g*0.9) + ',' + parseInt(b*0.9) + ',1)';
+          context.stroke();
+        }
+        context.restore();
+      } else {
+        context.beginPath();
+        context.arc(this.x, this.y / 2 - this.z, 3, 0, 2 * Math.PI);
+        context.fillStyle = '#080';
+        context.fill();
+        context.strokeStyle = '#000';
+        context.stroke();
+      }
+    },
+    timeToThrow: function() {
+      var elapsed = new Date().getTime() - this.pulledPin;
+      return 500 - elapsed;
+    },
+    sector: sector
+  };
+
+  function Grenades(game, player) {
+    Weapon.call(this, game, player);
+  }
+  Grenades.prototype = new Weapon;
+  $.extend(Grenades.prototype, {
+    shots: '∞',
+    fire: function() {
+      this.grenade = new Grenade(this.game);
+      this.firing = true;
+      this.ready = false;
+    },
+    fired: function() {
+      if (!this.firing) return;
+      var wait = this.grenade.timeToThrow();
+      if (wait > 0) {
+        setTimeout(this.fired.bind(this), wait);
+      } else {
+        this.grenade.throwAt(this.closest());
+        this.firing = false;
+        this.ready = true;
+      }
     }
   });
 
@@ -553,6 +741,8 @@
           hitCount = 0,
           sound;
 
+      this.game.noise();
+
       if (closest) {
         direction = Math.atan2(closest.distY, closest.distX);
         direction += Math.PI * (Math.random() / 45 - 1 / 90); // off by up to 3 degrees
@@ -565,7 +755,7 @@
           offBy =  Math.abs(Math.atan2(agent.distY, agent.distX) - direction);
           if (offBy < hitMargin) {
             hitCount++;
-            agent.headshot();
+            agent.kill();
           }
         }
       }
@@ -612,7 +802,7 @@
     size: 24,
     pursuitWobble: 10,
     patrolWobble: 30,
-    maxDecayTime: 80,
+    maxDecayTime: 160,
     deviations: 0,
     randomStart: function(board) {
       this.direction = normalizeDirection(Math.random() * Math.PI * 2);
@@ -621,7 +811,6 @@
     randomEdgeStart: function(board) {
       var sprite = this.game.config.sprites[this.sprite],
           startPos = Math.random() * 2 * (board.width + board.height);
-      startPos = Math.random() * (board.width / 2);
       if (startPos < board.width) {
         this.direction = Math.PI / 2;
         this.set(startPos, 0);
@@ -657,10 +846,9 @@
         context.drawImage(sprite, Math.round(this.x - sprite.width / 2), Math.round(this.y / 2 - sprite.height));
       }
     },
-    sector: function() {
-      return sectorCoord(this.x) + ":" + sectorCoord(this.y);
-    },
+    sector: sector,
     nextMove: function() {
+      this.currentSpeed = 0;
       if (this.dead) {
         if (this.decayTime)
           this.decayTime--;
@@ -686,7 +874,7 @@
     checkCollision: function(other, newX, newY) {
       var distX = other.x - newX,
           distY = other.y - newY,
-          dist = Math.sqrt(distX * distX + distY * distY);
+          dist = hypotenuse(distX, distY);
       if (dist > (this.size + other.size) / 2)
         return false;
       else
@@ -697,21 +885,16 @@
       if (this.target && !this.target.dead) {
         this.distX = this.target.x - this.x;
         this.distY = this.target.y - this.y;
-        this.dist = Math.sqrt(this.distX * this.distX + this.distY * this.distY);
+        this.dist = hypotenuse(this.distX, this.distY);
         this.optimalDirection = Math.atan2(this.distY, this.distX);
-        if (this.predictFactor && this.target.moving) {
+        if (this.predictFactor && this.target.currentSpeed) {
           var correction;
           // target fleeing?
           if (Math.abs(normalizeDirection(this.optimalDirection - this.target.direction)) < Math.PI / 2) {
-            // see where they'll be in several ticks, and adjust
-            var ticks = 10,
-                predictX = this.distX + this.target.speed * ticks * Math.cos(this.target.direction),
-                predictY = this.distY + this.target.speed * ticks * Math.sin(this.target.direction);
-            correction = this.predictFactor * normalizeDirection(Math.atan2(predictY, predictX) - this.optimalDirection);
-            //console.log("fleeing " + this.optimalDirection + " + " + correction);
+            var projected = this.target.projectedLocation(500);
+            correction = this.predictFactor * normalizeDirection(Math.atan2(projected.y - this.y, projected.x - this.x) - this.optimalDirection);
           } else { // try to intercept (not perfect, since speeds don't match, but zombies aren't *that* smart)
             correction = this.predictFactor * normalizeDirection(Math.PI - (this.target.direction - this.optimalDirection));
-            //console.log("intercept " + this.optimalDirection + " + " + correction);
           }
           this.optimalDirection = normalizeDirection(this.optimalDirection + correction);
         }
@@ -730,6 +913,7 @@
         this.move(direction, this.speed);
     },
     pursue: function() {
+      // TODO: not quite right
       if (this.targetTrackTime)
         this.targetTrackTime--;
       else
@@ -779,15 +963,25 @@
       var frd = this.agents.bestMoveFor(this, direction, distance);
       if (frd) {
         this.direction = frd.direction;
+        this.currentSpeed = frd.distance;
         this.set(frd.x, frd.y);
       }
     },
     set: function(x, y) {
       this.agents.set(this, x, y);
     },
-    headshot: function() {
+    kill: function() {
       this.dead = true;
       this.decayTime = this.maxDecayTime;
+    },
+    stun: function(time) {
+      this.sleepTime = parseInt(time, 10);
+    },
+    projectedLocation: function(time) {
+      var ticks = time / this.game.tickTime,
+          x = this.x + this.currentSpeed * ticks * Math.cos(this.direction),
+          y = this.y + this.currentSpeed * ticks * Math.sin(this.direction);
+      return {x: x, y: y};
     }
   };
 
@@ -799,6 +993,7 @@
   }
   Zombie.prototype = new Tracker;
   Zombie.prototype.maxSpeed = 6;
+  Zombie.prototype.zombie = true;
 
   function MouseTarget(board) {
     this.board = board;
@@ -810,6 +1005,10 @@
   MouseTarget.prototype = {
     caughtBy: function(){},
     size: 0,
+    set: function(x, y) {
+      this.x = x;
+      this.y = y;
+    },
     render: function(board) {
       var context = board.context,
           radius = Math.min(board.canvas.width, board.canvas.height) / 5,
@@ -854,15 +1053,29 @@
   $.extend(Player.prototype, {
     pursuitWobble: 0,
     speed: 12,
+    direction: 0,
     sprite: 0,
     checkProximity: function() {
       Tracker.prototype.checkProximity.call(this);
       this.targetVisible = true;
     },
-    caughtBy: function(tracker) {
-      this.dead = true;
+    kill: function() {
+      Tracker.prototype.kill.call(this);
       this.weapon.ready = false;
       this.game.gameOver();
+    },
+    infect: function() {
+      this.kill();
+      this.decayTime = 0;
+      var zombie = new Zombie(this.game);
+      zombie.sprite = 0;
+      zombie.direction = 0;
+      zombie.set(this.x, this.y + 1); // js sort isn't stable, so we want the zombie consistently in the front during rest
+      zombie.sleepTime = 40;
+      this.agents.push(zombie);
+    },
+    caughtBy: function() {
+      this.infect();
     },
     directionKeys: {
       37: 'W', // left
@@ -883,43 +1096,57 @@
       this.manualX = directions.E ^ directions.W ? (directions.E ? 1 : -1) : 0;
       this.manualY = directions.S ^ directions.N ? (directions.S ? 1 : -1) : 0;
     },
+    mouseDown: function() {
+      if (!this.dead && this.weapon.ready)
+        this.weapon.fire();
+    },
+    mouseUp: function() {
+      if (!this.dead && this.weapon.firing)
+        this.weapon.fired();
+    },
     mouseMove: function() {
       if (this.manual && !this.manualX && !this.manualY)
         this.manual = false;
     },
     keyDown: function(e) {
       var key = e.which;
-      if (this.dead || !this.directionKeys[key])
-        return;
-      this.manual = true;
-      this.directionKeysPressed[key] = true;
-      this.inferManualDirection();
+      if (this.dead) return;
+      if (this.directionKeys[key]) {
+        this.manual = true;
+        this.directionKeysPressed[key] = true;
+        this.inferManualDirection();
+      } else if (this.weapon.ready) {
+        if (e.which === 32)
+          this.weapon.fire();
+        else if (e.which === 188)
+          this.prevWeapon();
+        else if (e.which === 190)
+          this.nextWeapon();
+      }
     },
     keyUp: function(e) {
       var key = e.which;
-      if (this.dead || !this.directionKeys[key])
-        return;
-      this.directionKeysPressed[key] = false;
-      this.inferManualDirection();
-    },
-    keyPress: function(e) {
-      var key = e.which;
-      if (this.dead)
-        return;
-      if (e.which == 32 && this.player.weapon.ready) {
-        this.fire();
+      if (this.dead) return;
+      if (this.directionKeys[key]) {
+        this.directionKeysPressed[key] = false;
+        this.inferManualDirection();
+      } else if (e.which === 32 && this.weapon.firing) {
+        this.weapon.fired();
       }
-    },
-    fire: function() {
-      this.rest(5, true);
-      this.game.pursuitThreshold = Math.min(this.game.pursuitThreshold + this.game.config.pursuitThreshold, 6 * this.game.config.pursuitThreshold);
-      this.weapon.fire();
     },
     nextMove: function() {
       var ret = Tracker.prototype.nextMove.call(this);
-      this.moving = ret && !this.restRequired && (this.manual ? (this.manualX || this.manualY) : (this.x != this.target.x || this.y != this.target.y));
+      this.weapon.nextMove();
       return ret;
-    }
+    },
+    prevWeapon: function() {
+      this.weapons.unshift(this.weapons.pop());
+      this.weapon = this.weapons[0];
+    },
+    nextWeapon: function() {
+      this.weapons.push(this.weapons.shift());
+      this.weapon = this.weapons[0];
+    },
   });
 
   window.Zomgbie = Zomgbie;
