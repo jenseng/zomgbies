@@ -4,6 +4,21 @@
   var pixelsPerMeter = 36;
   var gravity = 9.8 * pixelsPerMeter;
 
+  var abs = Math.abs;
+  var cos = Math.cos;
+  var sin = Math.sin;
+  var atan2 = Math.atan2;
+  var rand = Math.random;
+  var floor = Math.floor;
+  var ceil = Math.ceil;
+  var round = Math.round;
+  var PI = Math.PI;
+  var HALF_PI = PI / 2;
+  var TAU = PI * 2;
+  var sqrt = Math.sqrt;
+  var min = Math.min;
+  var pow = Math.pow;
+
   // totally useless "accessibility"
   var $status = $("<div>", {style: "position: relative; z-index: -1; overflow: hidden; width: 0; height: 0;", "aria-live": "polite", "role": "log"}).appendTo($(document.body));
   var lastRead;
@@ -16,7 +31,7 @@
   }
 
   function pick() {
-    return arguments[Math.floor(Math.random() * arguments.length)];
+    return arguments[floor(rand() * arguments.length)];
   }
 
   function makeObservation() {
@@ -41,20 +56,20 @@
       "does my voice sound weird to you?",
       "i've got a bad feeling about this",
       "nice shooting, tex"));
-    setTimeout(makeObservation, 5000 + 1000 * Math.floor(Math.random() * 20));
+    setTimeout(makeObservation, 5000 + 1000 * floor(rand() * 20));
   }
   setTimeout(makeObservation, 10000);
 
   function normalizeDirection(direction) {
-    if (direction > Math.PI)
-      direction -= 2 * Math.PI;
-    else if (direction < -Math.PI)
-      direction += 2 * Math.PI;
+    if (direction > PI)
+      direction -= TAU;
+    else if (direction < -PI)
+      direction += TAU;
     return direction;
   }
 
   function hypotenuse(a, b) {
-    return Math.sqrt(a * a + b * b);
+    return sqrt(a * a + b * b);
   }
 
   function distance(a, b) {
@@ -62,7 +77,7 @@
   }
 
   function sectorCoord(n) {
-    return Math.floor(n / sectorSize);
+    return floor(n / sectorSize);
   }
 
   function sector() {
@@ -99,13 +114,13 @@
     this.addListeners($canvas);
 
     this.pursuitThreshold = this.config.pursuitThreshold;
-    this.tickTime = Math.floor(1000 / this.config.ticksPerSecond);
+    this.tickTime = floor(1000 / this.config.ticksPerSecond);
   };
   Game.prototype = {
     config: {
       ticksPerSecond: 30,
       maxZombies: 100,
-      maxSpawnsPerTick: 5,
+      maxSpawnsPerTick: 50,
       pursuitThreshold: 200,
       patrolCorrection: 3,
       pursueTargets: true,
@@ -183,18 +198,22 @@
     },
     maybeAddZombies: function() {
       var zombie,
-          numZombies;
-      if (this.agents.numZombies < this.config.maxZombies && Math.random() * 80 < 1) {
-        numZombies = Math.min(Math.ceil(Math.random() * this.config.maxSpawnsPerTick), this.config.maxZombies - this.agents.numZombies);
-        if (Math.random() < 0.2) {
-          if (numZombies === 1)
-            read(this.agents.numZombies === 0 ? "zombie" : pick("another zombie", "yet another", "zombie", "walker"));
-          else if (numZombies < 4)
+          agents = this.agents,
+          config = this.config,
+          numZombies = agents.numZombies,
+          maxZombies = config.maxZombies,
+          toAdd;
+      if (numZombies < maxZombies && rand() * 80 < 1) {
+        toAdd = min(ceil(rand() * config.maxSpawnsPerTick), maxZombies - numZombies);
+        if (rand() < 0.2) {
+          if (toAdd === 1)
+            read(numZombies === 0 ? "zombie" : pick("another zombie", "yet another", "zombie", "walker"));
+          else if (toAdd < 4)
             read(pick("zombies", "here they come", "here come a couple", "yikes"));
           else
-            read(pick("uh oh", "damn", "oh no", "damn", "oh crap a lot of zombies", "here comes the horde", "whoa that's a lot", "they just keep coming"));
+            read(pick("uh oh", "oh no", "damn", "oh crap a lot of zombies", "here comes the horde", "whoa that's a lot", "they just keep coming"));
         }
-        for (var i = 0; i < numZombies; i++) {
+        for (var i = 0; i < toAdd; i++) {
           zombie = new Zombie(this, this.player);
           zombie.randomEdgeStart(this.board);
           this.agents.push(zombie);
@@ -202,14 +221,14 @@
       }
     },
     gameOver: function() {
-      var messages = this.config.messages.gameOver;
-      var message = pick.apply(window, messages);
+      var messages = this.config.messages.gameOver,
+          message = pick.apply(window, messages);
       read("game over. " + message);
       read = function(){};
       this.stats.setStatus(message);
     },
     noise: function() {
-      this.pursuitThreshold = Math.min(this.pursuitThreshold + this.config.pursuitThreshold, 6 * this.config.pursuitThreshold);
+      this.pursuitThreshold = min(this.pursuitThreshold + this.config.pursuitThreshold, 6 * this.config.pursuitThreshold);
     }
   };
 
@@ -227,28 +246,36 @@
       this.height = this.canvas.height * 2;
     },
     renderRadius: function() {
-      var context = this.context;
+      var context = this.context,
+          game = this.game,
+          player = game.player;
       context.save();
       context.scale(1, 0.5);
       context.globalAlpha = 0.25;
       context.beginPath();
       // TODO should y really use size?
-      context.arc(this.game.player.x, this.game.player.y - this.game.player.size, this.game.pursuitThreshold, 0, 2 * Math.PI);
+      context.arc(player.x, player.y - player.size, game.pursuitThreshold, 0, TAU);
       context.fillStyle = '#ffd';
       context.fill();
       context.restore();
     },
     render: function() {
       this.context.clearRect(0, 0, this.width, this.height);
-      var args = [].slice.call(arguments);
-      if (this.game.player && !this.game.player.dead)
+      var args = [].slice.call(arguments),
+          len = args.length,
+          args2,
+          len2,
+          player = this.game.player;
+      if (player && !player.dead)
         this.renderRadius();
-      for (var i = 0; i < args.length; i++) {
+      for (var i = 0; i < len; i++) {
         if (args[i].render) {
           args[i].render(this);
         } else {
-          for (var j = 0; j < args[i].length; j++) {
-            args[i][j].render(this);
+          args2 = args[i];
+          len2 = args2.length;
+          for (var j = 0; j < len2; j++) {
+            args2[j].render(this);
           }
         }
       }
@@ -387,7 +414,7 @@
       this.renderText(board, "walkers: " + this.game.agents.numZombies + "\n< weapon: " + player.weapon.name + " >\nammo: " + (player.weapon.shots ? player.weapon.shots : "...") + (player.weapon.cache ? " / " + player.weapon.cache : ""), 30, "right", "bottom");
       if (this.statusTime) {
         context.font = "bold 36px sans-serif";
-        context.globalAlpha = 0.6 * Math.min(1, 4 * this.statusTime / this.maxStatusTime);
+        context.globalAlpha = 0.6 * min(1, 4 * this.statusTime / this.maxStatusTime);
         this.renderText(board, this.status, 42, "center", "center");
         this.statusTime--;
       }
@@ -409,30 +436,35 @@
       this.byStacking.push(item);
     },
     sort: function() {
-      this.byDistance.sort(function(a, b) {
+      var byDistance = this.byDistance,
+          byStacking = this.byStacking,
+          len = this.length,
+          i;
+      byDistance.sort(function(a, b) {
         return a.dist - b.dist;
       });
-      this.byStacking.sort(function(a, b) {
+      byStacking.sort(function(a, b) {
         return a.y - b.y;
       });
       this.sectors = {};
-      for (var i = 0; i < this.length; i++) {
-        var agent = this.byDistance[i];
-        this.addToSector(agent);
-        this.byDistance[i].distanceIdx = i;
-        this.byStacking[i].stackingIdx = i;
+      for (i = 0; i < len; i++) {
+        this.addToSector(byDistance[i]);
+        byDistance[i].distanceIdx = i;
+        byStacking[i].stackingIdx = i;
       }
     },
     numZombies: 0,
     remove: function(agent) {
-      var i;
-      this.length--;
-      this.byDistance.splice(agent.distanceIdx, 1);
-      for (i = agent.distanceIdx; i < this.length; i++)
-        this.byDistance[i].distanceIdx--;
-      this.byStacking.splice(agent.stackingIdx, 1);
-      for (i = agent.stackingIdx; i < this.length; i++)
-        this.byStacking[i].stackingIdx--;
+      var i,
+          len = --this.length,
+          byDistance = this.byDistance,
+          byStacking = this.byStacking;
+      byDistance.splice(agent.distanceIdx, 1);
+      for (i = agent.distanceIdx; i < len; i++)
+        byDistance[i].distanceIdx--;
+      byStacking.splice(agent.stackingIdx, 1);
+      for (i = agent.stackingIdx; i < len; i++)
+        byStacking[i].stackingIdx--;
       this.removeFromSector(agent);
     },
     bestMoveFor: function(agent, direction, distance) {
@@ -440,18 +472,18 @@
           currDist,
           currMove,
           collision,
-          factor = Math.random() > 0.5 ? 1 : -1; // so we alternate between left/right
+          factor = rand() > 0.5 ? 1 : -1; // so we alternate between left/right
       // try 7 directions at 4 decreasing speeds, starting w/ desired vector
       for (var i = 0; i < 4; i++) {
         currDist = (4 - i) / 4 * distance;
         for (var j = 0; j < 7; j++) {
           // 0 / 45 / -45 / 90 / - 90
-          currDir = normalizeDirection(direction + factor * (j % 2 === 0 ? 1 : -1) * Math.round(j / 2 + 0.25) * Math.PI / 4);
+          currDir = normalizeDirection(direction + factor * (j % 2 === 0 ? 1 : -1) * round(j / 2 + 0.25) * PI / 4);
           currMove = this.validMoveFor(agent, currDir, currDist);
           if (currMove) {
             if (i > 0 || j > 0) {
               if (agent.deviations > 2) { // don't want to ping pong forever, take a breather
-                agent.rest(Math.floor(Math.random() * 20), true);
+                agent.rest(floor(rand() * 20), true);
                 break;
               }
               agent.deviations++;
@@ -470,12 +502,12 @@
       // then see if we already overlap (due to spawn/bug/whatever), and if so, flee nearest neighbor at 1/2 impulse (overlap be damned)
       collision = this.closestCollision(agent);
       if (collision) {
-        currDir = normalizeDirection(Math.PI + collision.direction);
+        currDir = normalizeDirection(PI + collision.direction);
         return {
           distance: distance,
           direction: currDir,
-          x: agent.x + 0.5 * distance * Math.cos(currDir),
-          y: agent.y + 0.5 * distance * Math.sin(currDir)
+          x: agent.x + 0.5 * distance * cos(currDir),
+          y: agent.y + 0.5 * distance * sin(currDir)
         };
       }
       // we're surrounded but not overlapping, wait a tick for neighbors to leave
@@ -483,9 +515,10 @@
     },
     closestCollision: function(agent) {
       var neighbors = this.neighbors(agent),
+          len = neighbors.length,
           collision,
           closest;
-      for (var i = 0; i < neighbors.length; i++) {
+      for (var i = 0; i < len; i++) {
         collision = agent.checkCollision(neighbors[i], agent.x, agent.y);
         if (collision && (!closest || collision.dist < closest.dist))
           closest = collision;
@@ -493,13 +526,16 @@
       return closest;
     },
     validMoveFor: function(agent, direction, distance) {
-      var x = agent.x + distance * Math.cos(direction),
-          y = agent.y + distance * Math.sin(direction),
+      var x = agent.x + distance * cos(direction),
+          y = agent.y + distance * sin(direction),
           sectorX = sectorCoord(x),
-          sectorY = sectorCoord(y);
+          sectorY = sectorCoord(y),
+          neighbors,
+          len;
       if (agent !== this.game.player) {
-        var neighbors = this.neighborsFor(sectorX, sectorY, agent);
-        for (var i = 0; i < neighbors.length; i++) {
+        neighbors = this.neighborsFor(sectorX, sectorY, agent);
+        len = neighbors.length;
+        for (var i = 0; i < len; i++) {
           if (agent.checkCollision(neighbors[i], x, y))
             return false;
         }
@@ -510,14 +546,16 @@
       return this.neighborsFor(sectorCoord(agent.x), sectorCoord(agent.y), agent, distance);
     },
     neighborsFor: function(x, y, agent, distance) {
-      distance = distance === null || typeof distance === 'undefined' ? 1 : Math.ceil(distance / sectorSize);
+      distance = distance === null || typeof distance === 'undefined' ? 1 : ceil(distance / sectorSize);
       var neighbors = [],
-          sector;
+          sector,
+          len;
       for (var i = -distance; i <= distance; i++) {
         for (var j = -distance; j <= distance; j++) {
           sector = this.sectors[(x + i) + ":" + (y + j)];
           if (!sector) continue;
-          for (var n = 0; n < sector.length; n++) {
+          len = sector.length;
+          for (var n = 0; n < len; n++) {
             if (sector[n] === agent || sector[n] === agent.target || sector[n].dead || sector[n].object) continue;
             neighbors.push(sector[n]);
           }
@@ -538,27 +576,28 @@
     addToSector: function(agent, sKey) {
       if (typeof sKey === 'undefined')
         sKey = agent.sector();
-      if (!this.sectors[sKey])
-        this.sectors[sKey] = [];
-      this.sectors[sKey].push(agent);
+      var sector = this.sectors[sKey] || (this.sectors[sKey] = []);
+      sector.push(agent);
     },
     removeFromSector: function(agent, sKey) {
       if (typeof sKey === 'undefined')
         sKey = agent.sector();
-      if (this.sectors[sKey]) {
-        var idx = this.sectors[sKey].indexOf(agent);
-        this.sectors[sKey].splice(idx, 1);
-      }
+      var sector = this.sectors[sKey];
+      if (sector)
+        sector.splice(sector.indexOf(agent), 1);
     },
     move: function() {
       var agent,
-          numZombies = 0;
-      for (var i = 0; i < this.length; i++) {
+          numZombies = 0,
+          byDistance = this.byDistance,
+          len = this.length;
+      for (var i = 0; i < len; i++) {
         // closest ones get to move first
-        agent = this.byDistance[i];
+        agent = byDistance[i];
         if (!agent.nextMove()) {
           this.remove(agent);
           i--;
+          len--;
         } else if (!agent.dead && agent.zombie) {
           numZombies++;
         }
@@ -566,8 +605,10 @@
       this.numZombies = numZombies;
     },
     render: function(board) {
-      for (var i = 0; i < this.byStacking.length; i++) {
-        this.byStacking[i].render(board);
+      var byStacking = this.byStacking,
+          len = this.length;
+      for (var i = 0; i < len; i++) {
+        byStacking[i].render(board);
       }
     }
   };
@@ -599,9 +640,11 @@
     closest: function() {
       var closest = null,
           agents = this.game.agents,
+          len = agents.length,
+          byDistance = agents.byDistance,
           agent;
-      for (var i = 0; i < agents.byDistance.length; i++) {
-        agent = agents.byDistance[i];
+      for (var i = 0; i < len; i++) {
+        agent = byDistance[i];
         if (agent.dead || !agent.zombie)
           continue;
         closest = agent;
@@ -639,11 +682,12 @@
           optimalSpeedSide,
           inertia, // directional component of player's inertia (i.e. you can throw further in the direction you are going)
           relativeOptimalSpeed, // from the perspective of the player
-          maxSpeed;
+          maxSpeed,
+          player = this.player;
 
       this.thrown = true;
-      this.x = this.player.x;
-      this.y = this.player.y;
+      this.x = player.x;
+      this.y = player.y;
       this.z = 64; // shoulder height
       this.game.agents.push(this);
 
@@ -654,14 +698,14 @@
         var distX = target.x - this.x;
         var distY = target.y - this.y;
         var dist = hypotenuse(distX, distY);
-        optimalSpeed = Math.sqrt(dist * this.gravityPerTick) * 0.9; // fudge factor due to drop and roll
-        this.direction = Math.atan2(distY, distX);
+        optimalSpeed = sqrt(dist * this.gravityPerTick) * 0.9; // fudge factor due to drop and roll
+        this.direction = atan2(distY, distX);
       } else { // no target, just throw it far
         optimalSpeed = this.speed;
-        this.direction = normalizeDirection(Math.random() * 2 * Math.PI);
+        this.direction = normalizeDirection(rand() * TAU);
       }
-      optimalSpeedSide = optimalSpeed / Math.sqrt(2); // get the v/h speed (same, since 45 deg is optimal)
-      inertia = this.player.currentSpeed * Math.cos(this.player.direction - this.direction);
+      optimalSpeedSide = optimalSpeed / sqrt(2); // get the v/h speed (same, since 45 deg is optimal)
+      inertia = player.currentSpeed * cos(player.direction - this.direction);
       relativeOptimalSpeed = hypotenuse(optimalSpeedSide, optimalSpeedSide - inertia);
       maxSpeed = this.speed * (optimalSpeed / relativeOptimalSpeed);
       if (optimalSpeed > maxSpeed)
@@ -671,21 +715,24 @@
 
       // TODO maybe if close enough, bean zombie in head?
       // TODO throw sound
-      if (Math.random() < 0.25)
+      if (rand() < 0.25)
         read(pick("nice throw", "good arm", "good throw", "nice", "you're nolan ryan"));
     },
     explode: function() {
+      var agents = this.game.agents;
+
       // TODO explode sound
       if (!this.thrown) { // oh crap, didn't throw it!
+        var player = this.player;
         this.thrown = true;
-        this.x = this.player.x;
-        this.y = this.player.y;
+        this.x = player.x;
+        this.y = player.y;
         this.z = 0;
-        this.game.agents.push(this);
+        agents.push(this);
       }
       this.speed = 0;
       this.zSpeed = 0;
-      var neighbors = this.game.agents.neighbors(this, this.stunZone),
+      var neighbors = agents.neighbors(this, this.stunZone),
           neighbor,
           dist,
           hitCount = 0;
@@ -722,8 +769,8 @@
         else {
           this.zSpeed -= this.gravityPerTick;
         }
-        this.x += this.speed * Math.cos(this.direction);
-        this.y += this.speed * Math.sin(this.direction);
+        this.x += this.speed * cos(this.direction);
+        this.y += this.speed * sin(this.direction);
       }
       if (this.explodeTime) this.explodeTime--;
       return !this.exploded || this.explodeTime;
@@ -741,24 +788,24 @@
         var circles = size * 2;
         for (var i = 0; i < circles; i++) {
           context.beginPath();
-          var rad = (1 + 4 * Math.random()) * size;
-          var x = (5 - 10 * Math.random()) * size;
-          var y = (1 - 4 * Math.random()) * size;
+          var rad = (1 + 4 * rand()) * size;
+          var x = (5 - 10 * rand()) * size;
+          var y = (1 - 4 * rand()) * size;
           y -= (1 - this.explodeTime / 15) * 200;
-          context.arc(this.x + x, this.y / 2 - this.z + y, rad, 0, 2 * Math.PI);
-          var gray = (1 - fade) * (96 + Math.random() * 128);
-          var r = Math.floor(gray + fade * 255);
-          var g = Math.floor(gray + fade * (192 + Math.random() * 64));
-          var b = Math.floor(gray + fade * (Math.random() * 128));
+          context.arc(this.x + x, this.y / 2 - this.z + y, rad, 0, TAU);
+          var gray = (1 - fade) * (96 + rand() * 128);
+          var r = floor(gray + fade * 255);
+          var g = floor(gray + fade * (192 + rand() * 64));
+          var b = floor(gray + fade * (rand() * 128));
           context.fillStyle = 'rgba(' + r + ',' + g + ',' + b + ',1)';
           context.fill();
-          context.strokeStyle = 'rgba(' + Math.floor(r*0.9) + ',' + Math.floor(g*0.9) + ',' + Math.floor(b*0.9) + ',1)';
+          context.strokeStyle = 'rgba(' + floor(r*0.9) + ',' + floor(g*0.9) + ',' + floor(b*0.9) + ',1)';
           context.stroke();
         }
         context.restore();
       } else {
         context.beginPath();
-        context.arc(this.x, this.y / 2 - this.z, 3, 0, 2 * Math.PI);
+        context.arc(this.x, this.y / 2 - this.z, 3, 0, TAU);
         context.fillStyle = '#080';
         context.fill();
         context.strokeStyle = '#000';
@@ -785,11 +832,12 @@
     },
     fired: function() {
       if (!this.firing) return;
-      var wait = this.grenade.timeToThrow();
+      var grenade = this.grenade,
+          wait = grenade.timeToThrow();
       if (wait > 0) {
         setTimeout(this.fired.bind(this), wait);
       } else {
-        this.grenade.throwAt(this.closest());
+        grenade.throwAt(this.closest());
         this.firing = false;
         this.ready = true;
       }
@@ -822,65 +870,74 @@
     maxVisibleTime: 5,
     fire: function() {
       var closest = this.closest(),
-          direction = Math.random() * Math.PI * 2,
+          direction = rand() * TAU,
           player = this.player,
-          agents = this.game.agents,
+          game = this.game,
+          agents = game.agents,
+          byDistance = agents.byDistance,
+          len = agents.length,
+          fire = this.sounds.fire,
           agent,
           hitMargin,
           offBy,
           hitCount = 0,
           sound;
 
-      this.game.noise();
+      game.noise();
 
       if (closest) {
-        direction = Math.atan2(closest.distY, closest.distX);
-        direction += Math.PI * (Math.random() / 45 - 1 / 90); // off by up to 3 degrees
-        for (var i = 0; i < agents.byDistance.length; i++) {
-          agent = agents.byDistance[i];
+        direction = atan2(closest.distY, closest.distX);
+        direction += PI * (rand() / 45 - 1 / 90); // off by up to 3 degrees
+        for (var i = 0; i < len; i++) {
+          agent = byDistance[i];
           if (agent === player || agent.dead)
             continue;
           // will the shot hit this zombie?
-          hitMargin = Math.abs(Math.atan2(agent.size / 4, agent.dist));
-          offBy =  Math.abs(Math.atan2(agent.distY, agent.distX) - direction);
+          hitMargin = abs(atan2(agent.size / 4, agent.dist));
+          offBy =  abs(atan2(agent.distY, agent.distX) - direction);
           if (offBy < hitMargin) {
             hitCount++;
             agent.kill();
           }
         }
       }
-      this.game.stats.addShotInfo(hitCount);
-      direction = normalizeDirection(direction + Math.PI);
+      game.stats.addShotInfo(hitCount);
+      direction = normalizeDirection(direction + PI);
       this.lastShot = {x: player.x, y: player.y, direction: direction, visibleTime: this.maxVisibleTime};
       this.shots--;
       read(hitCount === 0 ? pick("miss", "whiff", "so close", "next time") : hitCount === 1 ? pick("nice shot", "got one", "got 'em", "haha", "headshot") : pick("oh wow", "got " + hitCount, "mega kill", hitCount + " for 1", "haha, amazing"));
-      this.sounds.fire.load();
-      this.sounds.fire.play();
+      fire.load();
+      fire.play();
       this.disable(800, function() {
         if (!this.shots)
           this.reload();
       });
     },
     reload: function() {
+      var reload = this.sounds.reload;
       read(pick("reload quick", "quick", "hurry", "c'mon", "let's go", "faster", "oh man"));
-      this.sounds.reload.load();
-      this.sounds.reload.play();
+      reload.load();
+      reload.play();
       this.disable(3000, function() {
         this.shots = 6;
       });
     },
     render: function(board) {
-      var context = board.context;
-      if (this.lastShot && this.lastShot.visibleTime) {
+      var context = board.context,
+          lastShot = this.lastShot;
+      if (lastShot && lastShot.visibleTime) {
+        var x = lastShot.x,
+            y = lastShot.y,
+            direction = lastShot.direction;
         context.save();
         context.beginPath();
-        context.moveTo(this.lastShot.x, this.lastShot.y / 2 - 40); // shot fired from 5/9 up player
-        context.lineTo(this.lastShot.x + 600 * Math.cos(this.lastShot.direction), (this.lastShot.y + 600 * Math.sin(this.lastShot.direction)) / 2 - 56); // end of stroke is 7/9 up (through head of zombies)
+        context.moveTo(lastShot.x, lastShot.y / 2 - 40); // shot fired from 5/9 up player
+        context.lineTo(lastShot.x + 600 * cos(lastShot.direction), (lastShot.y + 600 * sin(lastShot.direction)) / 2 - 56); // end of stroke is 7/9 up (through head of zombies)
         context.strokeStyle = '#ccc';
-        context.globalAlpha = this.lastShot.visibleTime / this.maxVisibleTime;
+        context.globalAlpha = lastShot.visibleTime / this.maxVisibleTime;
         context.stroke();
         context.restore();
-        this.lastShot.visibleTime--;
+        lastShot.visibleTime--;
       }
     }
   });
@@ -897,45 +954,49 @@
     maxDecayTime: 160,
     deviations: 0,
     randomStart: function(board) {
-      this.direction = normalizeDirection(Math.random() * Math.PI * 2);
-      this.set(Math.random() * board.width, Math.random() * board.height);
+      this.direction = normalizeDirection(rand() * TAU);
+      this.set(rand() * board.width, rand() * board.height);
     },
     randomEdgeStart: function(board) {
       var sprite = this.game.config.sprites[this.sprite],
-          startPos = Math.random() * 2 * (board.width + board.height);
-      if (startPos < board.width) {
-        this.direction = Math.PI / 2;
+          width = board.width,
+          height = board.height,
+          startPos = rand() * 2 * (width + height);
+      if (startPos < width) {
+        this.direction = HALF_PI;
         this.set(startPos, 0);
       }
-      else if (startPos < board.width + board.height) {
-        this.direction = Math.PI;
-        this.set(board.width + sprite.width / 2, startPos - board.width);
+      else if (startPos < width + height) {
+        this.direction = PI;
+        this.set(width + sprite.width / 2, startPos - width);
       }
-      else if (startPos < 2 * board.width + board.height) {
-        this.direction = 3 * Math.PI / 2;
-        this.set(startPos - board.width - board.height, board.height + sprite.height * 2);
+      else if (startPos < 2 * width + height) {
+        this.direction = 3 * HALF_PI;
+        this.set(startPos - width - height, height + sprite.height * 2);
       }
       else {
         this.direction = 0;
-        this.set(-sprite.width / 2, startPos - 2 * board.width - board.height);
+        this.set(-sprite.width / 2, startPos - 2 * width - height);
       }
     },
     render: function(board) {
       var context = board.context,
-          sprite = this.game.config.sprites[this.sprite];
-      if (this.dead && !this.decayTime)
+          sprite = this.game.config.sprites[this.sprite],
+          decayTime = this.decayTime,
+          maxDecayTime = this.maxDecayTime;
+      if (this.dead && !decayTime)
         return;
-      if (this.decayTime || this.sleepTime) {
+      if (decayTime || this.sleepTime) {
         context.save();
-        if (this.decayTime)
-          context.globalAlpha = this.decayTime > this.maxDecayTime / 2 ? 1 : 2 * this.decayTime / this.maxDecayTime;
-        context.translate(Math.round(this.x), Math.round(this.y / 2));
-        context.rotate(Math.PI / 2);
+        if (decayTime)
+          context.globalAlpha = decayTime > maxDecayTime / 2 ? 1 : 2 * decayTime / maxDecayTime;
+        context.translate(round(this.x), round(this.y / 2));
+        context.rotate(HALF_PI);
         context.drawImage(sprite, -sprite.width, -sprite.height / 2);
         context.restore();
       }
       else {
-        context.drawImage(sprite, Math.round(this.x - sprite.width / 2), Math.round(this.y / 2 - sprite.height));
+        context.drawImage(sprite, round(this.x - sprite.width / 2), round(this.y / 2 - sprite.height));
       }
     },
     sector: sector,
@@ -957,50 +1018,53 @@
         this.pursue();
       else if (this.restTime)
         this.rest();
-      else if (Math.random() < 0.02)
-        this.rest(Math.ceil(Math.random() * 40));
+      else if (rand() < 0.02)
+        this.rest(ceil(rand() * 40));
       else
         this.patrol();
       return true;
     },
     checkCollision: function(other, newX, newY) {
-      var distX = other.x - newX,
-          distY = other.y - newY,
-          dist = hypotenuse(distX, distY);
-      if (dist > (this.size + other.size) / 2)
+      var distX = abs(other.x - newX),
+          distY = abs(other.y - newY),
+          minDist = (this.size + other.size) / 2;
+      if (distX > minDist || distY > minDist || hypotenuse(distX, distY) > minDist)
         return false;
       else
-        return {direction: Math.atan2(distY, distX)};
+        return {direction: atan2(distY, distX)};
     },
     checkProximity: function() {
+      var target = this.target;
       this.targetVisible = false;
-      if (this.target && !this.target.dead) {
-        this.distX = this.target.x - this.x;
-        this.distY = this.target.y - this.y;
-        this.dist = hypotenuse(this.distX, this.distY);
-        this.optimalDirection = Math.atan2(this.distY, this.distX);
-        if (this.predictFactor && this.target.currentSpeed) {
+      if (target && !target.dead) {
+        var x = this.x,
+            y = this.y,
+            distX = this.distX = target.x - x,
+            distY = this.distY = target.y - y,
+            dist = this.dist = hypotenuse(this.distX, this.distY),
+            optimalDirection = this.optimalDirection = atan2(this.distY, this.distX);
+        if (this.predictFactor && target.currentSpeed) {
           var correction;
           // target fleeing?
-          if (Math.abs(normalizeDirection(this.optimalDirection - this.target.direction)) < Math.PI / 2) {
-            var projected = this.target.projectedLocation(500);
-            correction = this.predictFactor * normalizeDirection(Math.atan2(projected.y - this.y, projected.x - this.x) - this.optimalDirection);
+          if (abs(normalizeDirection(this.optimalDirection - target.direction)) < HALF_PI) {
+            var projected = target.projectedLocation(500);
+            correction = this.predictFactor * normalizeDirection(atan2(projected.y - y, projected.x - x) - optimalDirection);
           } else { // try to intercept (not perfect, since speeds don't match, but zombies aren't *that* smart)
-            correction = this.predictFactor * normalizeDirection(Math.PI - (this.target.direction - this.optimalDirection));
+            correction = this.predictFactor * normalizeDirection(PI - (target.direction - optimalDirection));
           }
-          this.optimalDirection = normalizeDirection(this.optimalDirection + correction);
+          this.optimalDirection = normalizeDirection(optimalDirection + correction);
         }
-        this.targetVisible = this.dist < this.game.pursuitThreshold;
+        this.targetVisible = dist < this.game.pursuitThreshold;
       } else {
         this.targetTrackTime = 0;
       }
     },
     wobble: function(degrees) {
       if (!degrees) return 0;
-      return Math.PI * (Math.random() * degrees / 90 - degrees / 180);
+      return PI * (rand() * degrees / 90 - degrees / 180);
     },
     manualMove: function() {
-      var direction = normalizeDirection(Math.atan2(this.manualY, this.manualX));
+      var direction = normalizeDirection(atan2(this.manualY, this.manualX));
       if (this.manualX || this.manualY)
         this.move(direction, this.speed);
     },
@@ -1010,21 +1074,24 @@
         this.targetTrackTime--;
       else
         this.targetTrackTime = 120;
-      if (this.dist - (this.size + this.target.size) / 2 < this.speed) { // jump to target
-        if (this.dist < this.speed) {
-          this.set(this.target.x, this.target.y);
+      var target = this.target,
+          dist = this.dist,
+          speed = this.speed,
+          game = this.game;
+      if (dist - (this.size + target.size) / 2 < speed) { // jump to target
+        if (dist < speed) {
+          this.set(target.x, target.y);
         } else {
-          this.move(this.optimalDirection, this.speed);
+          this.move(this.optimalDirection, speed);
         }
-        this.target.caughtBy(this);
+        target.caughtBy(this);
         this.restTime = 20;
       }
       else {
         // pursue with a slight wobble and variable speed (faster if closer)
         var direction = normalizeDirection(this.optimalDirection + this.wobble(this.pursuitWobble));
-        var speed = this.speed;
-        if (this !== this.game.player) {
-          speed *= (1 + Math.random() + (1 - Math.pow(Math.min(1, this.dist / this.game.pursuitThreshold), 3))) / 4;
+        if (this !== game.player) {
+          speed *= (1 + rand() + (1 - pow(min(1, dist / game.pursuitThreshold), 3))) / 4;
         }
         this.move(direction, speed);
       }
@@ -1035,8 +1102,8 @@
       if (this.target) {
         // do a slight correction towards target if more than 90deg off
         var difference = normalizeDirection(this.optimalDirection - direction);
-        if (Math.abs(difference) > Math.PI / 2)
-          direction += (difference > 0 ? 1 : -1) * Math.PI * this.game.config.patrolCorrection / 180;
+        if (abs(difference) > HALF_PI)
+          direction += (difference > 0 ? 1 : -1) * PI * this.game.config.patrolCorrection / 180;
       }
       this.move(direction, this.speed / 3);
     },
@@ -1067,21 +1134,23 @@
       this.decayTime = this.maxDecayTime;
     },
     stun: function(time) {
-      this.sleepTime = Math.floor(time);
+      this.sleepTime = floor(time);
     },
     projectedLocation: function(time) {
       var ticks = time / this.game.tickTime,
-          x = this.x + this.currentSpeed * ticks * Math.cos(this.direction),
-          y = this.y + this.currentSpeed * ticks * Math.sin(this.direction);
+          projectedDist = this.currentSpeed * ticks,
+          direction = this.direction,
+          x = this.x + projectedDist * cos(direction),
+          y = this.y + projectedDist * sin(direction);
       return {x: x, y: y};
     }
   };
 
   function Zombie(game, target){
     Tracker.call(this, game, target);
-    this.speed = (0.5 * (1 + Math.random()) * this.maxSpeed);
-    this.sprite = 1 + Math.floor(Math.random() * 15);
-    this.predictFactor = Math.random() * Math.random();
+    this.speed = (0.5 * (1 + rand()) * this.maxSpeed);
+    this.sprite = 1 + floor(rand() * 15);
+    this.predictFactor = rand() * rand();
   }
   Zombie.prototype = new Tracker;
   Zombie.prototype.maxSpeed = 6;
@@ -1103,30 +1172,35 @@
     },
     render: function(board) {
       var context = board.context,
-          radius = Math.min(board.canvas.width, board.canvas.height) / 5,
+          canvas = board.canvas,
+          width = canvas.width,
+          height = canvas.height,
+          radius = min(width, height) / 5,
           eyeOffset = 0.7,
           gradient,
           x = this.x,
-          y = this.y / 2;
-      this.mask.width = board.canvas.width;
-      this.mask.height = board.canvas.height;
-      this.maskContext.clearRect(0, 0, this.mask.width, this.mask.height);
-      gradient = this.maskContext.createRadialGradient(x - eyeOffset * radius, y, radius * 0.9, x - eyeOffset * radius, y, radius);
+          y = this.y / 2,
+          mask = this.mask,
+          maskContext = this.maskContext;
+      mask.width = canvasWidth;
+      mask.height = canvasHeight;
+      maskContext.clearRect(0, 0, width, height);
+      gradient = maskContext.createRadialGradient(x - eyeOffset * radius, y, radius * 0.9, x - eyeOffset * radius, y, radius);
       gradient.addColorStop(0, 'rgba(0,0,0,0.95)');
       gradient.addColorStop(1, 'rgba(0,0,0,0)');
-      this.maskContext.fillStyle = gradient;
-      this.maskContext.arc(x - eyeOffset * radius, y, radius, 0, 2 * Math.PI);
-      this.maskContext.fill();
-      gradient = this.maskContext.createRadialGradient(x + eyeOffset * radius, y, radius * 0.9, x + eyeOffset * radius, y, radius);
+      maskContext.fillStyle = gradient;
+      maskContext.arc(x - eyeOffset * radius, y, radius, 0, TAU);
+      maskContext.fill();
+      gradient = maskContext.createRadialGradient(x + eyeOffset * radius, y, radius * 0.9, x + eyeOffset * radius, y, radius);
       gradient.addColorStop(0, 'rgba(0,0,0,0.95)');
       gradient.addColorStop(1, 'rgba(0,0,0,0)');
-      this.maskContext.fillStyle = gradient;
-      this.maskContext.arc(x + eyeOffset * radius, y, radius, 0, 2 * Math.PI);
-      this.maskContext.fill();
-      this.maskContext.globalCompositeOperation = 'xor';
-      this.maskContext.fillStyle = 'rgba(0,0,0,1)';
-      this.maskContext.fillRect(0, 0, this.mask.width, this.mask.height);
-      context.drawImage(this.mask, 0, 0);
+      maskContext.fillStyle = gradient;
+      maskContext.arc(x + eyeOffset * radius, y, radius, 0, TAU);
+      maskContext.fill();
+      maskContext.globalCompositeOperation = 'xor';
+      maskContext.fillStyle = 'rgba(0,0,0,1)';
+      maskContext.fillRect(0, 0, width, height);
+      context.drawImage(mask, 0, 0);
     }
   };
 
