@@ -17,6 +17,7 @@
   var TAU = PI * 2;
   var sqrt = Math.sqrt;
   var min = Math.min;
+  var max = Math.max;
   var pow = Math.pow;
 
   // totally useless "accessibility"
@@ -72,16 +73,29 @@
     return sqrt(a * a + b * b);
   }
 
-  function distance(a, b) {
-    return hypotenuse(b.x - a.x, b.y - a.y);
+  function checkCollision(otherX, otherY, otherSize) {
+    var distY = abs(this.y - otherY),
+        minDist = (this.size + otherSize) / 2;
+    if (distY > minDist) return false;
+
+    var distX = abs(this.x - otherX);
+    if (distX > minDist) return false;
+
+    var dist = hypotenuse(distX, distY);
+    if (dist > minDist) return false;
+
+    return {direction: atan2(distY, distX), dist: dist};
   }
 
   function sectorCoord(n) {
     return floor(n / sectorSize);
   }
 
-  function sector() {
-    return sectorCoord(this.x) + ":" + sectorCoord(this.y);
+  function sectorRange(x, size) {
+    if (typeof x === 'undefined') x = this.x;
+    if (typeof size === 'undefined') size = this.size;
+    if (typeof x === 'undefined') return null;
+    return [sectorCoord(x - size / 2), sectorCoord(x + size / 2)];
   }
 
   function sum(array) {
@@ -106,7 +120,8 @@
       this.config.patrolCorrection = 1;
       this.config.pursueTargets = false;
       this.addAllZombies();
-    } else {
+    }
+    else {
       this.stats = new Stats(this);
       this.player = new Player(this, this.mouseTarget);
       this.agents.push(this.player);
@@ -266,12 +281,13 @@
           args2,
           len2,
           player = this.game.player;
-      if (player && !player.dead)
+      if (player && player.alive)
         this.renderRadius();
       for (var i = 0; i < len; i++) {
         if (args[i].render) {
           args[i].render(this);
-        } else {
+        }
+        else {
           args2 = args[i];
           len2 = args2.length;
           for (var j = 0; j < len2; j++) {
@@ -304,7 +320,8 @@
         this.killStreak += kills;
         if (this.killStreak > this.maxKillStreak)
           this.maxKillStreak = this.killStreak;
-      } else {
+      }
+      else {
         this.killStreak = 0;
       }
       this.hitRatio = this.totalHitShots / this.totalShots;
@@ -372,7 +389,8 @@
         if (line && metrics.width > canvas.width) {
           lines.push(line);
           line = words[i] + ' ';
-        } else {
+        }
+        else {
           line = testLine;
         }
       }
@@ -406,7 +424,7 @@
       context.font = "bold 24px sans-serif";
       context.textBaseline = "top";
       context.globalAlpha = 0.6;
-      context.fillStyle = player.dead ? '#333' : '#800';
+      context.fillStyle = player.alive ? '#800' : '#333';
       context.strokeStyle = '#000';
       if (this.game.config.debug)
         this.renderDebug(board);
@@ -441,14 +459,12 @@
           len = this.length,
           i;
       byDistance.sort(function(a, b) {
-        return a.dist - b.dist;
+        return a.distSquared - b.distSquared;
       });
       byStacking.sort(function(a, b) {
         return a.y - b.y;
       });
-      this.sectors = {};
       for (i = 0; i < len; i++) {
-        this.addToSector(byDistance[i]);
         byDistance[i].distanceIdx = i;
         byStacking[i].stackingIdx = i;
       }
@@ -465,7 +481,7 @@
       byStacking.splice(agent.stackingIdx, 1);
       for (i = agent.stackingIdx; i < len; i++)
         byStacking[i].stackingIdx--;
-      this.removeFromSector(agent);
+      this.removeFromSectors(agent, agent.sectorRange());
     },
     bestMoveFor: function(agent, direction, distance) {
       var currDir,
@@ -487,7 +503,8 @@
                 break;
               }
               agent.deviations++;
-            } else {
+            }
+            else {
               agent.deviations = 0;
             }
             return {
@@ -513,78 +530,90 @@
       // we're surrounded but not overlapping, wait a tick for neighbors to leave
       return null;
     },
-    closestCollision: function(agent) {
-      var neighbors = this.neighbors(agent),
-          len = neighbors.length,
+    collisionsFor: function(agent, x, y, size) {
+      if (typeof x === 'undefined') x = agent.x;
+      if (typeof y === 'undefined') y = agent.y;
+      if (typeof size === 'undefined') size = agent.size;
+      var range = agent.sectorRange(x, size),
+          sectors = this.sectors,
+          sector,
+          other,
           collision,
-          closest;
-      for (var i = 0; i < len; i++) {
-        collision = agent.checkCollision(neighbors[i], agent.x, agent.y);
-        if (collision && (!closest || collision.dist < closest.dist))
-          closest = collision;
+          collisions = [],
+          dist;
+      for (var i = range[0], last = range[1]; i <= last; i++) {
+        sector = this.sectors[i];
+        if (!sector) continue;
+        for (var j = 0, len = sector.length; j < len; j++) {
+          other = sector[j];
+          if (other === agent) continue;
+          collision = other.checkCollision(x, y, size);
+          if (collision)
+            collisions.push({agent: other, dist: collision.dist, direction: collision.direction});
+        }
       }
-      return closest;
+      return collisions;
+    },
+    closestCollision: function(agent) {
+      var collisions = this.collisionsFor(agent);
+      if (collisions.length > 1) {
+        collisions.sort(function(a, b) {
+          return a.dist - b.dist;
+        });
+      }
+      return collisions[0];
     },
     validMoveFor: function(agent, direction, distance) {
       var x = agent.x + distance * cos(direction),
-          y = agent.y + distance * sin(direction),
-          sectorX = sectorCoord(x),
-          sectorY = sectorCoord(y),
-          neighbors,
-          len;
-      if (agent !== this.game.player) {
-        neighbors = this.neighborsFor(sectorX, sectorY, agent);
-        len = neighbors.length;
-        for (var i = 0; i < len; i++) {
-          if (agent.checkCollision(neighbors[i], x, y))
-            return false;
-        }
-      }
+          y = agent.y + distance * sin(direction);
+      if (agent !== this.game.player && !agent.negligibleCollision && this.collisionsFor(agent, x, y).length)
+        return false;
       return {x: x, y: y};
     },
-    neighbors: function(agent, distance) {
-      return this.neighborsFor(sectorCoord(agent.x), sectorCoord(agent.y), agent, distance);
-    },
-    neighborsFor: function(x, y, agent, distance) {
-      distance = distance === null || typeof distance === 'undefined' ? 1 : ceil(distance / sectorSize);
-      var neighbors = [],
-          sector,
-          len;
-      for (var i = -distance; i <= distance; i++) {
-        for (var j = -distance; j <= distance; j++) {
-          sector = this.sectors[(x + i) + ":" + (y + j)];
-          if (!sector) continue;
-          len = sector.length;
-          for (var n = 0; n < len; n++) {
-            if (sector[n] === agent || sector[n] === agent.target || sector[n].dead || sector[n].object) continue;
-            neighbors.push(sector[n]);
-          }
-        }
-      }
-      return neighbors;
-    },
     set: function(agent, x, y) {
-      var sKeyOld = agent.sector(),
-          sKey;
+      var rangeOld = agent.sectorRange();
       agent.x = x;
       agent.y = y;
-      sKey = agent.sector();
-      if (sKey !== sKeyOld)
-        this.removeFromSector(agent, sKeyOld);
-      this.addToSector(agent, sKey);
+      if (rangeOld)
+        this.setSectors(agent, rangeOld, agent.sectorRange());
+      else
+        this.addToSectors(agent, agent.sectorRange());
     },
-    addToSector: function(agent, sKey) {
-      if (typeof sKey === 'undefined')
-        sKey = agent.sector();
-      var sector = this.sectors[sKey] || (this.sectors[sKey] = []);
-      sector.push(agent);
+    setSectors: function(agent, rangeOld, range) {
+      var oldStart = rangeOld[0],
+          oldEnd = rangeOld[1],
+          newStart = range[0],
+          newEnd = range[1],
+          sectors = this.sectors,
+          sector;
+      if (oldStart === newStart && oldEnd === newEnd)
+        return;
+      if (oldStart < newStart)
+        this.removeFromSectors(agent, [oldStart, min(newStart - 1, oldEnd)]);
+      else if (oldStart > newStart)
+        this.addToSectors(agent, [newStart, min(oldStart - 1, newEnd)]);
+
+      if (oldEnd > newEnd)
+        this.removeFromSectors(agent, [max(oldStart, newEnd + 1), oldEnd]);
+      else if (oldEnd < newEnd)
+        this.addToSectors(agent, [max(newStart, oldEnd + 1), newEnd]);
     },
-    removeFromSector: function(agent, sKey) {
-      if (typeof sKey === 'undefined')
-        sKey = agent.sector();
-      var sector = this.sectors[sKey];
-      if (sector)
+    addToSectors: function(agent, range) {
+      var sectors = this.sectors,
+          sector;
+      for (var i = range[0], last = range[1]; i <= last; i++) {
+        sector = sectors[i] || (sectors[i] = []);
+        sector.push(agent);
+      }
+    },
+    removeFromSectors: function(agent, range) {
+      var sectors = this.sectors,
+          sector;
+      for (var i = range[0], last = range[1]; i <= last; i++) {
+        sector = sectors[i];
         sector.splice(sector.indexOf(agent), 1);
+        if (!sector.length) delete sectors[i];
+      }
     },
     move: function() {
       var agent,
@@ -598,7 +627,8 @@
           this.remove(agent);
           i--;
           len--;
-        } else if (!agent.dead && agent.zombie) {
+        }
+        else if (agent.alive && agent.zombie) {
           numZombies++;
         }
       }
@@ -632,7 +662,7 @@
     disable: function(time, callback) {
       this.ready = false;
       setTimeout(function() {
-        if (!this.player.dead)
+        if (this.player.alive)
           this.ready = true;
         callback.call(this);
       }.bind(this), time);
@@ -645,10 +675,10 @@
           agent;
       for (var i = 0; i < len; i++) {
         agent = byDistance[i];
-        if (agent.dead || !agent.zombie)
-          continue;
-        closest = agent;
-        break;
+        if (agent.alive && agent.zombie) {
+          closest = agent;
+          break;
+        }
       }
       return closest;
     },
@@ -668,8 +698,9 @@
   }
   Grenade.prototype = {
     timeToExplode: 1500,
-    killZone: 100,
-    stunZone: 200,
+    killRadius: 100,
+    negligibleCollision: true,
+    stunDiameter: 400,
     speed: 64,
     decel: 12, // when it hits the ground
     object: true,
@@ -700,7 +731,8 @@
         var dist = hypotenuse(distX, distY);
         optimalSpeed = sqrt(dist * this.gravityPerTick) * 0.9; // fudge factor due to drop and roll
         this.direction = atan2(distY, distX);
-      } else { // no target, just throw it far
+      }
+      else { // no target, just throw it far
         optimalSpeed = this.speed;
         this.direction = normalizeDirection(rand() * TAU);
       }
@@ -718,6 +750,7 @@
       if (rand() < 0.25)
         read(pick("nice throw", "good arm", "good throw", "nice", "you're nolan ryan"));
     },
+    checkCollision: checkCollision,
     explode: function() {
       var agents = this.game.agents;
 
@@ -732,30 +765,36 @@
       }
       this.speed = 0;
       this.zSpeed = 0;
-      var neighbors = agents.neighbors(this, this.stunZone),
-          neighbor,
-          dist,
-          hitCount = 0;
-
-      for (var i = 0; i < neighbors.length; i++) {
-        neighbor = neighbors[i];
-        dist = distance(this, neighbor);
-        if (dist < this.killZone) {
-          hitCount++;
-          neighbor.kill();
-        }
-        else if (dist < this.stunZone)
-          neighbor.stun(80 * (1 - dist / this.stunZone));
-      }
-      if (hitCount === 0)
-        read(pick("waste", "total waste", "got nothin", "next time", "do you even aim bro?"));
-      else
-        read(pick("hahaha", "awesome, " + hitCount, "got " + hitCount, "haha, you blew up " + hitCount, "ha, got " + hitCount, "that'll teach them", "it's raining arms", "i love grenades"));
       this.exploded = true;
       this.explodeTime = 15;
     },
+    set: function(x, y) {
+      this.game.agents.set(this, x, y);
+    },
     nextMove: function() {
-      if (this.speed > 0) {
+      var explodeTime = this.explodeTime;
+      if (explodeTime) {
+        if (explodeTime == 15) {
+          var hitCount = 0;
+          this.size = this.stunZone;
+          var casualties = this.game.agents.collisionsFor(this, this.x, this.y, this.stunDiameter),
+              killRadius = this.killRadius,
+              info,
+              agent;
+          for (var i = 0, len = casualties.length; i < len; i++) {
+            info = casualties[i];
+            agent = info.agent;
+            if (!agent.alive) continue;
+            if (info.dist < this.killRadius)
+              agent.kill();
+            else
+              agent.stun(160 * (1 - info.dist / this.stunDiameter));
+          }
+          read(pick("hahaha", "awesome, " + hitCount, "got " + hitCount, "haha, you blew up " + hitCount, "ha, got " + hitCount, "that'll teach them", "it's raining arms", "i love grenades"));
+        }
+        this.explodeTime--;
+      }
+      else if (this.speed > 0) {
         this.z += this.zSpeed;
         if (this.z <= 0) {
           if (this.gravityPerTick) {
@@ -769,10 +808,8 @@
         else {
           this.zSpeed -= this.gravityPerTick;
         }
-        this.x += this.speed * cos(this.direction);
-        this.y += this.speed * sin(this.direction);
+        this.set(this.x + this.speed * cos(this.direction), this.y + this.speed * sin(this.direction));
       }
-      if (this.explodeTime) this.explodeTime--;
       return !this.exploded || this.explodeTime;
     },
     render: function(board) {
@@ -803,7 +840,8 @@
           context.stroke();
         }
         context.restore();
-      } else {
+      }
+      else {
         context.beginPath();
         context.arc(this.x, this.y / 2 - this.z, 3, 0, TAU);
         context.fillStyle = '#080';
@@ -816,7 +854,7 @@
       var elapsed = new Date().getTime() - this.pulledPin;
       return 500 - elapsed;
     },
-    sector: sector
+    sectorRange: sectorRange
   };
 
   function Grenades(game, player) {
@@ -836,7 +874,8 @@
           wait = grenade.timeToThrow();
       if (wait > 0) {
         setTimeout(this.fired.bind(this), wait);
-      } else {
+      }
+      else {
         grenade.throwAt(this.closest());
         this.firing = false;
         this.ready = true;
@@ -886,15 +925,15 @@
       game.noise();
 
       if (closest) {
-        direction = atan2(closest.distY, closest.distX);
+        direction = closest.optimalDirection;
         direction += PI * (rand() / 45 - 1 / 90); // off by up to 3 degrees
         for (var i = 0; i < len; i++) {
           agent = byDistance[i];
-          if (agent === player || agent.dead)
+          if (agent === player || !agent.alive)
             continue;
           // will the shot hit this zombie?
-          hitMargin = abs(atan2(agent.size / 4, agent.dist));
-          offBy =  abs(atan2(agent.distY, agent.distX) - direction);
+          hitMargin = abs(atan2(agent.size / 4, Math.sqrt(agent.distSquared)));
+          offBy =  abs(agent.optimalDirection - direction);
           if (offBy < hitMargin) {
             hitCount++;
             agent.kill();
@@ -948,6 +987,7 @@
     this.target = target;
   }
   Tracker.prototype = {
+    alive: true,
     size: 24,
     pursuitWobble: 10,
     patrolWobble: 30,
@@ -984,7 +1024,7 @@
           sprite = this.game.config.sprites[this.sprite],
           decayTime = this.decayTime,
           maxDecayTime = this.maxDecayTime;
-      if (this.dead && !decayTime)
+      if (!this.alive && !decayTime)
         return;
       if (decayTime || this.sleepTime) {
         context.save();
@@ -999,10 +1039,10 @@
         context.drawImage(sprite, round(this.x - sprite.width / 2), round(this.y / 2 - sprite.height));
       }
     },
-    sector: sector,
+    sectorRange: sectorRange,
     nextMove: function() {
       this.currentSpeed = 0;
-      if (this.dead) {
+      if (!this.alive) {
         if (this.decayTime)
           this.decayTime--;
         return this.decayTime; // if zero, time to remove it
@@ -1014,7 +1054,7 @@
         this.sleepTime--;
       else if (this.manual && !this.restRequired)
         this.manualMove();
-      else if (this.game.config.pursueTargets && (this.targetVisible || this.targetTrackTime) && !this.restRequired)
+      else if (this.game.config.pursueTargets && this.targetVisible() && !this.restRequired)
         this.pursue();
       else if (this.restTime)
         this.rest();
@@ -1024,38 +1064,43 @@
         this.patrol();
       return true;
     },
-    checkCollision: function(other, newX, newY) {
-      var distX = abs(other.x - newX),
-          distY = abs(other.y - newY),
-          minDist = (this.size + other.size) / 2;
-      if (distX > minDist || distY > minDist || hypotenuse(distX, distY) > minDist)
-        return false;
-      else
-        return {direction: atan2(distY, distX)};
+    targetVisible: function() {
+      var target = this.target,
+          threshold = this.game.pursuitThreshold,
+          distX = this.distX,
+          distY = this.distY,
+          dist;
+
+      if (!target || target.alive === false) return false;
+      if (distX > threshold || distX < -threshold) return false;
+      if (distY > threshold || distY < -threshold) return false;
+      dist = this.dist = Math.sqrt(this.distSquared);
+      return dist < threshold;
     },
+    checkCollision: checkCollision,
     checkProximity: function() {
       var target = this.target;
-      this.targetVisible = false;
-      if (target && !target.dead) {
+      if (target && target.alive !== false) {
         var x = this.x,
             y = this.y,
             distX = this.distX = target.x - x,
             distY = this.distY = target.y - y,
-            dist = this.dist = hypotenuse(this.distX, this.distY),
-            optimalDirection = this.optimalDirection = atan2(this.distY, this.distX);
+            optimalDirection = this.optimalDirection = atan2(distY, distX);
+        this.distSquared = (distX * distX + distY * distY);
         if (this.predictFactor && target.currentSpeed) {
           var correction;
           // target fleeing?
           if (abs(normalizeDirection(this.optimalDirection - target.direction)) < HALF_PI) {
             var projected = target.projectedLocation(500);
             correction = this.predictFactor * normalizeDirection(atan2(projected.y - y, projected.x - x) - optimalDirection);
-          } else { // try to intercept (not perfect, since speeds don't match, but zombies aren't *that* smart)
+          }
+          else { // try to intercept (not perfect, since speeds don't match, but zombies aren't *that* smart)
             correction = this.predictFactor * normalizeDirection(PI - (target.direction - optimalDirection));
           }
           this.optimalDirection = normalizeDirection(optimalDirection + correction);
         }
-        this.targetVisible = dist < this.game.pursuitThreshold;
-      } else {
+      }
+      else {
         this.targetTrackTime = 0;
       }
     },
@@ -1081,7 +1126,8 @@
       if (dist - (this.size + target.size) / 2 < speed) { // jump to target
         if (dist < speed) {
           this.set(target.x, target.y);
-        } else {
+        }
+        else {
           this.move(this.optimalDirection, speed);
         }
         target.caughtBy(this);
@@ -1130,7 +1176,7 @@
       this.agents.set(this, x, y);
     },
     kill: function() {
-      this.dead = true;
+      this.alive = false;
       this.decayTime = this.maxDecayTime;
     },
     stun: function(time) {
@@ -1182,8 +1228,8 @@
           y = this.y / 2,
           mask = this.mask,
           maskContext = this.maskContext;
-      mask.width = canvasWidth;
-      mask.height = canvasHeight;
+      mask.width = width;
+      mask.height = height;
       maskContext.clearRect(0, 0, width, height);
       gradient = maskContext.createRadialGradient(x - eyeOffset * radius, y, radius * 0.9, x - eyeOffset * radius, y, radius);
       gradient.addColorStop(0, 'rgba(0,0,0,0.95)');
@@ -1223,7 +1269,10 @@
     sprite: 0,
     checkProximity: function() {
       Tracker.prototype.checkProximity.call(this);
-      this.targetVisible = true;
+    },
+    targetVisible: function() {
+      this.dist = Math.sqrt(this.distSquared);
+      return true;
     },
     kill: function() {
       Tracker.prototype.kill.call(this);
@@ -1263,11 +1312,11 @@
       this.manualY = directions.S ^ directions.N ? (directions.S ? 1 : -1) : 0;
     },
     mouseDown: function() {
-      if (!this.dead && this.weapon.ready)
+      if (this.alive && this.weapon.ready)
         this.weapon.fire();
     },
     mouseUp: function() {
-      if (!this.dead && this.weapon.firing)
+      if (this.alive && this.weapon.firing)
         this.weapon.fired();
     },
     mouseMove: function() {
@@ -1276,12 +1325,13 @@
     },
     keyDown: function(e) {
       var key = e.which;
-      if (this.dead) return;
+      if (!this.alive) return;
       if (this.directionKeys[key]) {
         this.manual = true;
         this.directionKeysPressed[key] = true;
         this.inferManualDirection();
-      } else if (this.weapon.ready) {
+      }
+      else if (this.weapon.ready) {
         if (e.which === 32)
           this.weapon.fire();
         else if (e.which === 188)
@@ -1292,11 +1342,12 @@
     },
     keyUp: function(e) {
       var key = e.which;
-      if (this.dead) return;
+      if (!this.alive) return;
       if (this.directionKeys[key]) {
         this.directionKeysPressed[key] = false;
         this.inferManualDirection();
-      } else if (e.which === 32 && this.weapon.firing) {
+      }
+      else if (e.which === 32 && this.weapon.firing) {
         this.weapon.fired();
       }
     },
