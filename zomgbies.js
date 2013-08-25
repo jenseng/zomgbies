@@ -84,7 +84,7 @@
     var dist = hypotenuse(distX, distY);
     if (dist > minDist) return false;
 
-    if (this.z != otherZ && (this.z + this.height < otherZ || otherZ + otherHeight < this.z)) return false;
+    if (this.z !== otherZ && (this.z + this.height < otherZ || otherZ + otherHeight < this.z)) return false;
 
     return {direction: atan2(distY, distX), dist: dist};
   }
@@ -118,7 +118,7 @@
     this.board = new Board(this, $canvas);
     this.agents = new AgentList(this);
     this.mouseTarget = new MouseTarget(this.board);
-    if (this.config.mode == 'observe') {
+    if (this.config.mode === 'observe') {
       this.config.patrolCorrection = 1;
       this.config.pursueTargets = false;
       this.addAllZombies();
@@ -254,8 +254,9 @@
       this.pursuitThreshold = newVal;
       this.pursuitThresholdSquared = newVal * newVal;
     },
-    noise: function() {
-      this.setPursuitThreshold(min(this.pursuitThreshold + this.config.pursuitThreshold, 3 * this.config.pursuitThreshold));
+    noise: function(factor) {
+      if (typeof factor === 'undefined') factor = 1;
+      this.setPursuitThreshold(min(this.pursuitThreshold + factor * this.config.pursuitThreshold, 3 * this.config.pursuitThreshold));
     }
   };
 
@@ -347,7 +348,7 @@
           y;
       context.textAlign = alignment;
       for (i = 0; i < lines.length; i++) {
-        x = alignment == 'left' ? 10 : board.canvas.width - 10;
+        x = alignment === 'left' ? 10 : board.canvas.width - 10;
         y = board.canvas.height - 10 - 30 * (lines.length - 1) + i * 30;
         context.fillText(lines[i], x, y);
         context.strokeText(lines[i], x, y);
@@ -375,7 +376,7 @@
       height = lines.length * lineHeight;
       if (xAlign === 'center')
         x = canvas.width / 2;
-      else if (xAlign == 'right')
+      else if (xAlign === 'right')
         x = canvas.width - 10;
       if (yAlign === 'center')
         y = (canvas.height - height) / 2;
@@ -766,7 +767,7 @@
         var distX = target.x - this.x;
         var distY = target.y - this.y;
         var dist = hypotenuse(distX, distY);
-        optimalSpeed = sqrt(dist * this.gravityPerTick) * 0.9; // fudge factor due to drop and roll
+        optimalSpeed = sqrt(dist * this.gravityPerTick) * 0.8; // fudge factor due to drop and roll
         this.direction = atan2(distY, distX);
       }
       else { // no target, just throw it far
@@ -813,7 +814,7 @@
     nextMove: function() {
       var explodeTime = this.explodeTime;
       if (explodeTime) {
-        if (explodeTime == 30) {
+        if (explodeTime === 30) {
           this.set(this.x, this.y, this.z, 96);
           var hitCount = 0,
               player = this.player,
@@ -842,7 +843,7 @@
                 agent.distract(this, 60 + floor(60 * rand()), distractDiameter);
             }
           }
-          //game.noise();
+          game.noise(0.5);
           read(pick("hahaha", "awesome, " + hitCount, "got " + hitCount, "haha, you blew up " + hitCount, "ha, got " + hitCount, "that'll teach them", "it's raining arms", "i love grenades"));
         }
         this.explodeTime--;
@@ -873,25 +874,26 @@
         var fade = animationTime < 12 ? animationTime / 12 : 1;
         fade = fade*fade*fade;
         context.globalAlpha = fade;
-        var size = animationTime > 13 ?
-          5 * (16 - animationTime):
-          10 + animationTime / 2;
-        var circles = size * 2;
+        var size = animationTime > 10 ?
+          3 * (16 - animationTime):
+          5 + animationTime / 2;
+        var circles = size * 4;
         for (var i = 0; i < circles; i++) {
           context.beginPath();
-          var rad = (1 + 4 * rand()) * size;
+          var rad = (1 + 2 * rand()) * size;
           var x = (5 - 10 * rand()) * size;
-          var y = (1 - 4 * rand()) * size;
+          var y = (2 - 4 * rand()) * size;
           y -= (1 - animationTime / 15) * 200;
           context.arc(this.x + x, this.y / 2 - this.z + y, rad, 0, TAU);
           var gray = (1 - fade) * (96 + rand() * 128);
           var r = floor(gray + fade * 255);
           var g = floor(gray + fade * (192 + rand() * 64));
           var b = floor(gray + fade * (rand() * 128));
-          context.fillStyle = 'rgba(' + r + ',' + g + ',' + b + ',1)';
+          var opacity = 0.5 * rand() + 0.1;
+          context.fillStyle = 'rgba(' + r + ',' + g + ',' + b + ',' + opacity + ')';
           context.fill();
-          context.strokeStyle = 'rgba(' + floor(r*0.9) + ',' + floor(g*0.9) + ',' + floor(b*0.9) + ',1)';
-          context.stroke();
+          //context.strokeStyle = 'rgba(' + floor(r*0.9) + ',' + floor(g*0.9) + ',' + floor(b*0.9) + ',1)';
+          //context.stroke();
         }
         context.restore();
       }
@@ -1151,6 +1153,7 @@
             optimalDirection;
         if (this.distractTime) {
           var targetFrd = this.targetFrd;
+          if (!targetFrd) debugger;
           if (--this.distractTime) {
             distX = targetFrd.x - x;
             distY = targetFrd.y - y;
@@ -1236,7 +1239,7 @@
       this.move(direction, this.speed / 3);
     },
     rest: function(duration, required) {
-      if (typeof duration == 'undefined') {
+      if (typeof duration === 'undefined') {
         this.restTime--;
         if (!this.restTime)
           this.restRequired = false;
