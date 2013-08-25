@@ -7,12 +7,14 @@ A little zombie game written in JavaScript
 ## TODO
 
 * chance to knock over zombie if just grazed (not full on collision)
-* requestAnimationFrame, decouple ticks
+* redo run loop and all timing stuff, i.e.
+  * decouple render and use requestAnimationFrame (but just for rendering)
+  * no setTimeout except for main run loop
+  * all timing/speed/etc. info in terms of ms, not in ticks ... then on
+    slow machines we can have a higher nextTick if needed
 * better HUD
 * high scores
 * moar sprites
-* tracking
-  * have zombies track explosion for a few seconds
 * sounds
   * zombies
   * grenades (pin, throw, thud, explode)

@@ -1,6 +1,6 @@
 (function($) {
 
-  var sectorSize = 48;
+  var sectorSize = 36;
   var pixelsPerMeter = 36;
   var gravity = 9.8 * pixelsPerMeter;
 
@@ -73,7 +73,7 @@
     return sqrt(a * a + b * b);
   }
 
-  function checkCollision(otherX, otherY, otherSize) {
+  function checkCollision(otherX, otherY, otherSize, otherZ, otherHeight) {
     var distY = abs(this.y - otherY),
         minDist = (this.size + otherSize) / 2;
     if (distY > minDist) return false;
@@ -83,6 +83,8 @@
 
     var dist = hypotenuse(distX, distY);
     if (dist > minDist) return false;
+
+    if (this.z != otherZ && (this.z + this.height < otherZ || otherZ + otherHeight < this.z)) return false;
 
     return {direction: atan2(distY, distX), dist: dist};
   }
@@ -128,7 +130,7 @@
     }
     this.addListeners($canvas);
 
-    this.pursuitThreshold = this.config.pursuitThreshold;
+    this.setPursuitThreshold(this.config.pursuitThreshold);
     this.tickTime = floor(1000 / this.config.ticksPerSecond);
   };
   Game.prototype = {
@@ -163,17 +165,23 @@
           this.player.mouseUp();
       }.bind(this));
 
-      if (this.player) {
-        $doc.on('keydown', this.player.keyDown.bind(this.player));
-        $doc.on('keyup', this.player.keyUp.bind(this.player));
-      }
+      $doc.on('keydown', this.keyDown.bind(this));
+      $doc.on('keyup', this.keyUp.bind(this));
 
       if (this.config.resize) {
         var $window = $(window);
         $window.on('resize', this.board.resize.bind(this.board));
       }
     },
-    times: {tick: [], run: [], render: []},
+    keyDown: function(e) {
+      var key = e.which;
+      if (this.player) this.player.keyDown(key);
+    },
+    keyUp: function(e) {
+      var key = e.which;
+      if (this.player) this.player.keyUp(key);
+    },
+    times: {run: [], render: []},
     time: function(label, code) {
       var start = new Date().getTime();
       code.call(this);
@@ -201,7 +209,7 @@
           this.board.render(this.agents, this.mouseTarget);
       });
       if (this.pursuitThreshold > this.config.pursuitThreshold)
-        this.pursuitThreshold -= 2;
+        this.setPursuitThreshold(this.pursuitThreshold - 2);
       setTimeout(this.run.bind(this), this.times.nextTick - new Date().getTime());
     },
     addAllZombies: function() {
@@ -242,8 +250,12 @@
       read = function(){};
       this.stats.setStatus(message);
     },
+    setPursuitThreshold: function(newVal) {
+      this.pursuitThreshold = newVal;
+      this.pursuitThresholdSquared = newVal * newVal;
+    },
     noise: function() {
-      this.pursuitThreshold = min(this.pursuitThreshold + this.config.pursuitThreshold, 6 * this.config.pursuitThreshold);
+      this.setPursuitThreshold(min(this.pursuitThreshold + this.config.pursuitThreshold, 3 * this.config.pursuitThreshold));
     }
   };
 
@@ -459,7 +471,7 @@
           len = this.length,
           i;
       byDistance.sort(function(a, b) {
-        return a.distSquared - b.distSquared;
+        return a.distSquaredFrd - b.distSquaredFrd;
       });
       byStacking.sort(function(a, b) {
         return a.y - b.y;
@@ -508,7 +520,7 @@
               agent.deviations = 0;
             }
             return {
-              distance: currDist,
+              distance: currDist * currMove.factor,
               direction: currDir,
               x: currMove.x,
               y: currMove.y
@@ -534,20 +546,24 @@
       if (typeof x === 'undefined') x = agent.x;
       if (typeof y === 'undefined') y = agent.y;
       if (typeof size === 'undefined') size = agent.size;
-      var range = agent.sectorRange(x, size),
+      var z = agent.z,
+          height = agent.height,
+          range = agent.sectorRange(x, size),
           sectors = this.sectors,
           sector,
           other,
           collision,
           collisions = [],
-          dist;
+          dist,
+          seen = {};
       for (var i = range[0], last = range[1]; i <= last; i++) {
         sector = this.sectors[i];
         if (!sector) continue;
         for (var j = 0, len = sector.length; j < len; j++) {
           other = sector[j];
-          if (other === agent) continue;
-          collision = other.checkCollision(x, y, size);
+          if (other === agent || seen[other.distanceIdx]) continue;
+          seen[other.distanceIdx] = true;
+          collision = other.checkCollision(x, y, size, z, height);
           if (collision)
             collisions.push({agent: other, dist: collision.dist, direction: collision.direction});
         }
@@ -565,15 +581,35 @@
     },
     validMoveFor: function(agent, direction, distance) {
       var x = agent.x + distance * cos(direction),
-          y = agent.y + distance * sin(direction);
-      if (agent !== this.game.player && !agent.negligibleCollision && this.collisionsFor(agent, x, y).length)
-        return false;
-      return {x: x, y: y};
+          y = agent.y + distance * sin(direction),
+          factor = 1,
+          other;
+      if (agent !== this.game.player) {
+        var collisions = this.collisionsFor(agent, x, y),
+            len = collisions.length;
+        if (len) {
+          for (var i = 0; i < len; i++) {
+            other = collisions[i].agent;
+            if (other.decayTime) // can walk over bodies, but slowly
+              factor = 0.2 * other.decayTime / other.maxDecayTime;
+            else if (other.sleepTime)
+              factor = 0.2;
+            else // otherwise legit collision, turn around
+              return false;
+          }
+        }
+      }
+      return {x: x, y: y, factor: factor};
     },
-    set: function(agent, x, y) {
+    set: function(agent, x, y, z, size) {
+      if (typeof z === 'undefined') z = agent.z;
+      if (typeof size === 'undefined') size = agent.size;
+      if (agent.x === x && agent.y === y && agent.z === z && agent.size === size) return;
       var rangeOld = agent.sectorRange();
       agent.x = x;
       agent.y = y;
+      agent.z = z;
+      agent.size = size;
       if (rangeOld)
         this.setSectors(agent, rangeOld, agent.sectorRange());
       else
@@ -698,10 +734,13 @@
   }
   Grenade.prototype = {
     timeToExplode: 1500,
-    killRadius: 100,
-    negligibleCollision: true,
-    stunDiameter: 400,
+    trackable: true,
+    killRadius: 60,
+    maimRadius: 120,
+    stunRadius: 200,
+    distractDiameter: 1000,
     speed: 64,
+    size: 6,
     decel: 12, // when it hits the ground
     object: true,
     distance: 0,
@@ -717,9 +756,7 @@
           player = this.player;
 
       this.thrown = true;
-      this.x = player.x;
-      this.y = player.y;
-      this.z = 64; // shoulder height
+      this.set(player.x, player.y, 64); // shoulder height
       this.game.agents.push(this);
 
       if (target) {
@@ -758,38 +795,54 @@
       if (!this.thrown) { // oh crap, didn't throw it!
         var player = this.player;
         this.thrown = true;
-        this.x = player.x;
-        this.y = player.y;
-        this.z = 0;
+        this.set(player.x, player.y, 0);
         agents.push(this);
       }
       this.speed = 0;
       this.zSpeed = 0;
       this.exploded = true;
-      this.explodeTime = 15;
+      this.explodeTime = 30;
     },
-    set: function(x, y) {
-      this.game.agents.set(this, x, y);
+    caughtBy: function(agent) {
+      if (agent.distractTime)
+        agent.distractTime = 1;
+    },
+    set: function(x, y, z, size) {
+      this.game.agents.set(this, x, y, z, size);
     },
     nextMove: function() {
       var explodeTime = this.explodeTime;
       if (explodeTime) {
-        if (explodeTime == 15) {
-          var hitCount = 0;
-          this.size = this.stunZone;
-          var casualties = this.game.agents.collisionsFor(this, this.x, this.y, this.stunDiameter),
+        if (explodeTime == 30) {
+          this.set(this.x, this.y, this.z, 96);
+          var hitCount = 0,
+              player = this.player,
               killRadius = this.killRadius,
+              maimRadius = this.maimRadius,
+              stunRadius = this.stunRadius,
+              distractDiameter = this.distractDiameter,
+              game = this.game,
+              casualties = game.agents.collisionsFor(this, this.x, this.y, distractDiameter),
               info,
               agent;
           for (var i = 0, len = casualties.length; i < len; i++) {
             info = casualties[i];
             agent = info.agent;
             if (!agent.alive) continue;
-            if (info.dist < this.killRadius)
+            if (info.dist < killRadius) {
               agent.kill();
-            else
-              agent.stun(160 * (1 - info.dist / this.stunDiameter));
+            }
+            else if (info.dist < maimRadius) {
+              agent.maim(floor(100 * (1.5 - info.dist / maimRadius)));
+            }
+            else if (agent !== this.player) {
+              if (info.dist < stunRadius)
+                agent.stun(floor(50 * (1.5 - info.dist / stunRadius)));
+              else
+                agent.distract(this, 60 + floor(60 * rand()), distractDiameter);
+            }
           }
+          //game.noise();
           read(pick("hahaha", "awesome, " + hitCount, "got " + hitCount, "haha, you blew up " + hitCount, "ha, got " + hitCount, "that'll teach them", "it's raining arms", "i love grenades"));
         }
         this.explodeTime--;
@@ -816,19 +869,20 @@
       var context = board.context;
       if (this.exploded) {
         context.save();
-        var fade = this.explodeTime < 12 ? this.explodeTime / 12 : 1;
+        var animationTime = max(0, this.explodeTime - 15);
+        var fade = animationTime < 12 ? animationTime / 12 : 1;
         fade = fade*fade*fade;
         context.globalAlpha = fade;
-        var size = this.explodeTime > 13 ?
-          5 * (16 - this.explodeTime):
-          10 + this.explodeTime / 2;
+        var size = animationTime > 13 ?
+          5 * (16 - animationTime):
+          10 + animationTime / 2;
         var circles = size * 2;
         for (var i = 0; i < circles; i++) {
           context.beginPath();
           var rad = (1 + 4 * rand()) * size;
           var x = (5 - 10 * rand()) * size;
           var y = (1 - 4 * rand()) * size;
-          y -= (1 - this.explodeTime / 15) * 200;
+          y -= (1 - animationTime / 15) * 200;
           context.arc(this.x + x, this.y / 2 - this.z + y, rad, 0, TAU);
           var gray = (1 - fade) * (96 + rand() * 128);
           var r = floor(gray + fade * 255);
@@ -932,7 +986,7 @@
           if (agent === player || !agent.alive)
             continue;
           // will the shot hit this zombie?
-          hitMargin = abs(atan2(agent.size / 4, Math.sqrt(agent.distSquared)));
+          hitMargin = abs(atan2(agent.size / 4, Math.sqrt(agent.distSquaredFrd)));
           offBy =  abs(agent.optimalDirection - direction);
           if (offBy < hitMargin) {
             hitCount++;
@@ -988,6 +1042,7 @@
   }
   Tracker.prototype = {
     alive: true,
+    trackable: true,
     size: 24,
     pursuitWobble: 10,
     patrolWobble: 30,
@@ -1066,7 +1121,8 @@
     },
     targetVisible: function() {
       var target = this.target,
-          threshold = this.game.pursuitThreshold,
+          game = this.game,
+          threshold = this.pursuitThreshold || game.pursuitThreshold,
           distX = this.distX,
           distY = this.distY,
           dist;
@@ -1074,19 +1130,45 @@
       if (!target || target.alive === false) return false;
       if (distX > threshold || distX < -threshold) return false;
       if (distY > threshold || distY < -threshold) return false;
-      dist = this.dist = Math.sqrt(this.distSquared);
-      return dist < threshold;
+      return this.distSquared < (this.pursuitThresholdSquared || game.pursuitThresholdSquared);
+    },
+    distract: function(fakeTarget, distractTime, distractRadius) {
+      this.targetTrackTime = this.distractTime = distractTime;
+      this.pursuitThreshold = distractRadius;
+      this.pursuitThresholdSquared = distractRadius * distractRadius;
+      if (!this.targetFrd)
+        this.targetFrd = this.target;
+      this.target = fakeTarget;
     },
     checkCollision: checkCollision,
     checkProximity: function() {
       var target = this.target;
-      if (target && target.alive !== false) {
+      if (target && target.trackable) {
         var x = this.x,
             y = this.y,
-            distX = this.distX = target.x - x,
-            distY = this.distY = target.y - y,
-            optimalDirection = this.optimalDirection = atan2(distY, distX);
+            distX,
+            distY,
+            optimalDirection;
+        if (this.distractTime) {
+          var targetFrd = this.targetFrd;
+          if (--this.distractTime) {
+            distX = targetFrd.x - x;
+            distY = targetFrd.y - y;
+            this.distSquaredFrd = (distX * distX + distY * distY);
+          } else {
+            // back on track
+            this.target = target = targetFrd;
+            this.targetFrd = null;
+            this.pursuitThreshold = null;
+            this.pursuitThresholdSquared = null;
+          }
+        }
+        distX = this.distX = target.x - x;
+        distY = this.distY = target.y - y;
+        optimalDirection = this.optimalDirection = atan2(distY, distX);
         this.distSquared = (distX * distX + distY * distY);
+        if (!this.distractTime)
+          this.distSquaredFrd = this.distSquared;
         if (this.predictFactor && target.currentSpeed) {
           var correction;
           // target fleeing?
@@ -1120,16 +1202,16 @@
       else
         this.targetTrackTime = 120;
       var target = this.target,
-          dist = this.dist,
+          distSquared = this.distSquared,
           speed = this.speed,
+          speedSquared = this.speedSquared,
+          minCaptureDist = speed + (this.size + target.size) / 2,
           game = this.game;
-      if (dist - (this.size + target.size) / 2 < speed) { // jump to target
-        if (dist < speed) {
+      if (distSquared < minCaptureDist * minCaptureDist) { // jump to target
+        if (distSquared < speedSquared)
           this.set(target.x, target.y);
-        }
-        else {
+        else
           this.move(this.optimalDirection, speed);
-        }
         target.caughtBy(this);
         this.restTime = 20;
       }
@@ -1137,7 +1219,7 @@
         // pursue with a slight wobble and variable speed (faster if closer)
         var direction = normalizeDirection(this.optimalDirection + this.wobble(this.pursuitWobble));
         if (this !== game.player) {
-          speed *= (1 + rand() + (1 - pow(min(1, dist / game.pursuitThreshold), 3))) / 4;
+          speed *= (1 + rand() + (1 - pow(min(1, distSquared / game.pursuitThresholdSquared), 2))) / 4;
         }
         this.move(direction, speed);
       }
@@ -1179,8 +1261,11 @@
       this.alive = false;
       this.decayTime = this.maxDecayTime;
     },
-    stun: function(time) {
+    maim: function(time) {
       this.sleepTime = floor(time);
+    },
+    stun: function(time) {
+      this.rest(time, true);
     },
     projectedLocation: function(time) {
       var ticks = time / this.game.tickTime,
@@ -1195,6 +1280,7 @@
   function Zombie(game, target){
     Tracker.call(this, game, target);
     this.speed = (0.5 * (1 + rand()) * this.maxSpeed);
+    this.speedSquared = this.speed * this.speed;
     this.sprite = 1 + floor(rand() * 15);
     this.predictFactor = rand() * rand();
   }
@@ -1211,6 +1297,7 @@
   }
   MouseTarget.prototype = {
     caughtBy: function(){},
+    trackable: true,
     size: 0,
     set: function(x, y) {
       this.x = x;
@@ -1252,7 +1339,8 @@
 
   function Player(game, mouseTarget) {
     Tracker.call(this, game, mouseTarget);
-    this.set(this.target.x, this.target.y);
+    this.set(mouseTarget.x, mouseTarget.y);
+    this.speedSquared = this.speed * this.speed;
     this.directionKeysPressed = {};
     this.weapons = [];
     var weaponNames = game.config.weapons;
@@ -1271,7 +1359,6 @@
       Tracker.prototype.checkProximity.call(this);
     },
     targetVisible: function() {
-      this.dist = Math.sqrt(this.distSquared);
       return true;
     },
     kill: function() {
@@ -1323,8 +1410,7 @@
       if (this.manual && !this.manualX && !this.manualY)
         this.manual = false;
     },
-    keyDown: function(e) {
-      var key = e.which;
+    keyDown: function(key) {
       if (!this.alive) return;
       if (this.directionKeys[key]) {
         this.manual = true;
@@ -1332,22 +1418,21 @@
         this.inferManualDirection();
       }
       else if (this.weapon.ready) {
-        if (e.which === 32)
+        if (key === 32)
           this.weapon.fire();
-        else if (e.which === 188)
+        else if (key === 188)
           this.prevWeapon();
-        else if (e.which === 190)
+        else if (key === 190)
           this.nextWeapon();
       }
     },
-    keyUp: function(e) {
-      var key = e.which;
+    keyUp: function(key) {
       if (!this.alive) return;
       if (this.directionKeys[key]) {
         this.directionKeysPressed[key] = false;
         this.inferManualDirection();
       }
-      else if (e.which === 32 && this.weapon.firing) {
+      else if (key === 32 && this.weapon.firing) {
         this.weapon.fired();
       }
     },
