@@ -16,6 +16,7 @@
   var HALF_PI = PI / 2;
   var TAU = PI * 2;
   var sqrt = Math.sqrt;
+  var SQRT_2 = sqrt(2);
   var min = Math.min;
   var max = Math.max;
   var pow = Math.pow;
@@ -75,18 +76,19 @@
 
   function checkCollision(otherX, otherY, otherSize, otherZ, otherHeight) {
     var distY = abs(this.y - otherY),
-        minDist = (this.size + otherSize) / 2;
+        minDist = (this.size + otherSize) / 2,
+        minDistSquared = minDist * minDist;
     if (distY > minDist) return false;
 
     var distX = abs(this.x - otherX);
     if (distX > minDist) return false;
 
-    var dist = hypotenuse(distX, distY);
-    if (dist > minDist) return false;
+    var distSquared = distX * distX + distY * distY;
+    if (distSquared > minDistSquared) return false;
 
     if (this.z !== otherZ && (this.z + this.height < otherZ || otherZ + otherHeight < this.z)) return false;
 
-    return {direction: atan2(distY, distX), dist: dist};
+    return {direction: atan2(distY, distX), distSquared: distSquared};
   }
 
   function sectorCoord(n) {
@@ -566,7 +568,7 @@
           seen[other.distanceIdx] = true;
           collision = other.checkCollision(x, y, size, z, height);
           if (collision)
-            collisions.push({agent: other, dist: collision.dist, direction: collision.direction});
+            collisions.push({agent: other, distSquared: collision.distSquared, direction: collision.direction});
         }
       }
       return collisions;
@@ -575,7 +577,7 @@
       var collisions = this.collisionsFor(agent);
       if (collisions.length > 1) {
         collisions.sort(function(a, b) {
-          return a.dist - b.dist;
+          return a.distSquared - b.distSquared;
         });
       }
       return collisions[0];
@@ -736,9 +738,9 @@
   Grenade.prototype = {
     timeToExplode: 1500,
     trackable: true,
-    killRadius: 60,
-    maimRadius: 120,
-    stunRadius: 200,
+    killRadiusSquared: 60 * 60,
+    maimRadiusSquared: 120 * 120,
+    stunRadiusSquared: 200 * 200,
     distractDiameter: 1000,
     speed: 64,
     size: 6,
@@ -767,14 +769,14 @@
         var distX = target.x - this.x;
         var distY = target.y - this.y;
         var dist = hypotenuse(distX, distY);
-        optimalSpeed = sqrt(dist * this.gravityPerTick) * 0.8; // fudge factor due to drop and roll
+        optimalSpeed = sqrt(dist * this.gravityPerTick) * 0.85; // fudge factor due to drop and roll
         this.direction = atan2(distY, distX);
       }
       else { // no target, just throw it far
         optimalSpeed = this.speed;
         this.direction = normalizeDirection(rand() * TAU);
       }
-      optimalSpeedSide = optimalSpeed / sqrt(2); // get the v/h speed (same, since 45 deg is optimal)
+      optimalSpeedSide = optimalSpeed / SQRT_2; // get the v/h speed (same, since 45 deg is optimal)
       inertia = player.currentSpeed * cos(player.direction - this.direction);
       relativeOptimalSpeed = hypotenuse(optimalSpeedSide, optimalSpeedSide - inertia);
       maxSpeed = this.speed * (optimalSpeed / relativeOptimalSpeed);
@@ -818,9 +820,9 @@
           this.set(this.x, this.y, this.z, 96);
           var hitCount = 0,
               player = this.player,
-              killRadius = this.killRadius,
-              maimRadius = this.maimRadius,
-              stunRadius = this.stunRadius,
+              killRadiusSquared = this.killRadiusSquared,
+              maimRadiusSquared = this.maimRadiusSquared,
+              stunRadiusSquared = this.stunRadiusSquared,
               distractDiameter = this.distractDiameter,
               game = this.game,
               casualties = game.agents.collisionsFor(this, this.x, this.y, distractDiameter),
@@ -830,15 +832,15 @@
             info = casualties[i];
             agent = info.agent;
             if (!agent.alive) continue;
-            if (info.dist < killRadius) {
+            if (info.distSquared < killRadiusSquared) {
               agent.kill();
             }
-            else if (info.dist < maimRadius) {
-              agent.maim(floor(100 * (1.5 - info.dist / maimRadius)));
+            else if (info.distSquared < maimRadiusSquared) {
+              agent.maim(floor(50 + 100 * (1 - info.distSquared / maimRadiusSquared)));
             }
             else if (agent !== this.player) {
-              if (info.dist < stunRadius)
-                agent.stun(floor(50 * (1.5 - info.dist / stunRadius)));
+              if (info.distSquared < stunRadiusSquared)
+                agent.stun(floor(25 + 50 * (1 - info.distSquared / stunRadiusSquared)));
               else
                 agent.distract(this, 60 + floor(60 * rand()), distractDiameter);
             }
@@ -988,7 +990,7 @@
           if (agent === player || !agent.alive)
             continue;
           // will the shot hit this zombie?
-          hitMargin = abs(atan2(agent.size / 4, Math.sqrt(agent.distSquaredFrd)));
+          hitMargin = abs(atan2(agent.size / 4, sqrt(agent.distSquaredFrd)));
           offBy =  abs(agent.optimalDirection - direction);
           if (offBy < hitMargin) {
             hitCount++;
@@ -1402,11 +1404,11 @@
       this.manualY = directions.S ^ directions.N ? (directions.S ? 1 : -1) : 0;
     },
     mouseDown: function() {
-      if (this.alive && this.weapon.ready)
+      if (this.alive && this.weapon.ready && !this.sleepTime)
         this.weapon.fire();
     },
     mouseUp: function() {
-      if (this.alive && this.weapon.firing)
+      if (this.alive && this.weapon.firing && !this.sleepTime)
         this.weapon.fired();
     },
     mouseMove: function() {
@@ -1420,7 +1422,7 @@
         this.directionKeysPressed[key] = true;
         this.inferManualDirection();
       }
-      else if (this.weapon.ready) {
+      else if (this.weapon.ready && !this.sleepTime) {
         if (key === 32)
           this.weapon.fire();
         else if (key === 188)
