@@ -1,12 +1,13 @@
 # ZOMGBIES!
 
-A little zombie game written in JavaScript
+A little zombie game written in ~~JavaScript~~ CoffeeScript
 
 [Try it out](http://jenseng.github.io/zomgbies)
 
 ## TODO
 
-* chance to knock over zombie if just grazed (not full on collision)
+* detect player->zombie collisions
+  * chance to knock over zombie if just grazed (not full on collision)
 * redo run loop and all timing stuff, i.e.
   * decouple render and use requestAnimationFrame (but just for rendering)
   * no setTimeout except for main run loop
@@ -17,12 +18,12 @@ A little zombie game written in JavaScript
 * moar sprites
 * sounds
   * zombies
-  * grenades (pin, throw, thud, explode)
 * animations
-  * better grenade and explosion
+  * better grenade
   * gunshot
   * blood
 * weapons
   * sword
-  * flamethrower
+  * flamethrower (hold mouse/space allows aiming via mouse/keyboard)
+  * grenade bonus (hold mouse/space allows further distance, maybe aim?)
 * ai mode (watch through binoculars)
