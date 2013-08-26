@@ -732,10 +732,17 @@
     this.player = game.player;
     this.pulledPin = new Date().getTime();
     this.gravityPerTick = gravity / game.config.ticksPerSecond;
-    // TODO pin sound
+    var pin = this.sounds.pin;
+    pin.load();
+    pin.play();
     setTimeout(this.explode.bind(this), this.timeToExplode);
   }
   Grenade.prototype = {
+    sounds: {
+      pin: $('<audio src="audio/pin.mp3" preload="auto"></audio>')[0],
+      hit: $('<audio src="audio/grenadehit.m4a" preload="auto"></audio>')[0],
+      explode: $('<audio src="audio/explode.mp3" preload="auto"></audio>')[0]
+    },
     timeToExplode: 1500,
     trackable: true,
     killRadiusSquared: 60 * 60,
@@ -792,9 +799,16 @@
     },
     checkCollision: checkCollision,
     explode: function() {
-      var agents = this.game.agents;
+      var agents = this.game.agents,
+          sounds = this.sounds,
+          pin = sounds.pin,
+          hit = sounds.hit,
+          explode = sounds.explode;
 
-      // TODO explode sound
+      pin.pause();
+      hit.pause();
+      explode.load();
+      explode.play();
       if (!this.thrown) { // oh crap, didn't throw it!
         var player = this.player;
         this.thrown = true;
@@ -854,7 +868,9 @@
         this.z += this.zSpeed;
         if (this.z <= 0) {
           if (this.gravityPerTick) {
-            // TODO hit ground sound
+            var hit = this.sounds.hit;
+            hit.load();
+            hit.play();
             this.gravityPerTick = 0;
           }
           this.z = 0;
@@ -955,13 +971,13 @@
 
   function Colt(game, player){
     Weapon.call(this, game, player);
-    this.sounds = {
-      fire: $('<audio src="audio/colt.mp3" preload="auto"></audio>')[0],
-      reload: $('<audio src="audio/reload.m4a" preload="auto"></audio>')[0]
-    };
   }
   Colt.prototype = new Weapon;
   $.extend(Colt.prototype, {
+    sounds: {
+      fire: $('<audio src="audio/colt.mp3" preload="auto"></audio>')[0],
+      reload: $('<audio src="audio/reload.m4a" preload="auto"></audio>')[0],
+    },
     shots: 6,
     cache: '∞',
     maxVisibleTime: 5,
