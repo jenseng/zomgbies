@@ -12,14 +12,16 @@
   var floor = Math.floor;
   var ceil = Math.ceil;
   var round = Math.round;
-  var PI = Math.PI;
-  var HALF_PI = PI / 2;
-  var TAU = PI * 2;
   var sqrt = Math.sqrt;
-  var SQRT_2 = sqrt(2);
   var min = Math.min;
   var max = Math.max;
   var pow = Math.pow;
+
+  var PI = Math.PI;
+  var HALF_PI = PI / 2;
+  var QUARTER_PI = PI / 4;
+  var TAU = PI * 2;
+  var SQRT_2 = sqrt(2);
 
   // totally useless "accessibility"
   var $status = $("<div>", {style: "position: relative; z-index: -1; overflow: hidden; width: 0; height: 0;", "aria-live": "polite", "role": "log"}).appendTo($(document.body));
@@ -134,6 +136,7 @@
 
     this.setPursuitThreshold(this.config.pursuitThreshold);
     this.tickTime = floor(1000 / this.config.ticksPerSecond);
+    this.times = {run: [], render: []};
   };
   Game.prototype = {
     config: {
@@ -183,7 +186,6 @@
       var key = e.which;
       if (this.player) this.player.keyUp(key);
     },
-    times: {run: [], render: []},
     time: function(label, code) {
       var start = new Date().getTime();
       code.call(this);
@@ -247,7 +249,7 @@
     },
     gameOver: function() {
       var messages = this.config.messages.gameOver,
-          message = pick.apply(window, messages);
+          message = pick.apply(this, messages);
       read("game over. " + message);
       read = function(){};
       this.stats.setStatus(message);
@@ -345,19 +347,9 @@
       this.status = message;
       this.statusTime = this.maxStatusTime;
     },
-    renderLines: function(context, board, alignment, lines){
-      var x,
-          y;
-      context.textAlign = alignment;
-      for (i = 0; i < lines.length; i++) {
-        x = alignment === 'left' ? 10 : board.canvas.width - 10;
-        y = board.canvas.height - 10 - 30 * (lines.length - 1) + i * 30;
-        context.fillText(lines[i], x, y);
-        context.strokeText(lines[i], x, y);
-      }
-    },
     renderText: function(board, text, lineHeight, xAlign, yAlign) {
       var canvas = board.canvas,
+          width = canvas.width,
           context = board.context,
           lines = text.split("\n"),
           newLines,
@@ -368,8 +360,8 @@
           i;
       for (i = 0; i < lines.length; i++) {
         metrics = context.measureText(lines[i]);
-        if (metrics.width >= canvas.width) {
-          newLines = this.wrapText(canvas, context, lines[i]);
+        if (metrics.width >= width) {
+          newLines = this.wrapText(lines[i], context, width);
           newLines.splice(0, 0, i, 1);
           i += newLines.length - 1;
           lines.splice.apply(lines, newLines);
@@ -377,9 +369,9 @@
       }
       height = lines.length * lineHeight;
       if (xAlign === 'center')
-        x = canvas.width / 2;
+        x = width / 2;
       else if (xAlign === 'right')
-        x = canvas.width - 10;
+        x = width - 10;
       if (yAlign === 'center')
         y = (canvas.height - height) / 2;
       else if (yAlign === 'bottom')
@@ -392,7 +384,7 @@
         y += lineHeight;
       }
     },
-    wrapText: function(canvas, context, text) {
+    wrapText: function(text, context, width) {
       var words = text.split(/\s/),
           lines = [],
           line = '',
@@ -401,7 +393,7 @@
       for (var i = 0; i < words.length; i++) {
         testLine = line + words[i] + ' ';
         metrics = context.measureText(testLine);
-        if (line && metrics.width > canvas.width) {
+        if (line && metrics.width > width) {
           lines.push(line);
           line = words[i] + ' ';
         }
@@ -413,16 +405,20 @@
       return lines;
     },
     renderDebug: function(board) {
-      var sectors = this.game.agents.sectors;
+      var game = this.game,
+          tickTime = game.tickTime,
+          times = game.times,
+          agents = game.agents,
+          sectors = agents.sectors;
           sectorCount = 0;
       for (var sector in sectors)
         sectorCount++;
       this.renderText(
         board,
         "sectors: " + sectorCount + "\n" +
-        "agents: " + this.game.agents.length + "\n" +
-        "run: " + (sum(this.game.times.run) / this.game.tickTime).toFixed(2) + "%\n" +
-        "render: " + (sum(this.game.times.render) / this.game.tickTime).toFixed(2) + "%",
+        "agents: " + agents.length + "\n" +
+        "run: " + (sum(times.run) / tickTime).toFixed(2) + "%\n" +
+        "render: " + (sum(times.render) / tickTime).toFixed(2) + "%",
         30,
         "left",
         "top");
@@ -431,6 +427,7 @@
       var canvas = board.canvas,
           context = board.context,
           player = this.game.player,
+          weapon = player.weapon,
           x,
           y,
           i,
@@ -444,7 +441,7 @@
       if (this.game.config.debug)
         this.renderDebug(board);
       this.renderText(board, "kills: " + this.kills + "\nstreak: " + this.killStreak + " (" + this.maxKillStreak + ")\ncombo: " + this.maxCombo, 30, "left", "bottom");
-      this.renderText(board, "walkers: " + this.game.agents.numZombies + "\n< weapon: " + player.weapon.name + " >\nammo: " + (player.weapon.shots ? player.weapon.shots : "...") + (player.weapon.cache ? " / " + player.weapon.cache : ""), 30, "right", "bottom");
+      this.renderText(board, "walkers: " + this.game.agents.numZombies + "\n< weapon: " + weapon.name + " >\nammo: " + (weapon.shots ? weapon.shots : "...") + (weapon.cache ? " / " + weapon.cache : ""), 30, "right", "bottom");
       if (this.statusTime) {
         context.font = "bold 36px sans-serif";
         context.globalAlpha = 0.6 * min(1, 4 * this.statusTime / this.maxStatusTime);
@@ -458,33 +455,38 @@
   function AgentList(game){
     this.game = game;
     this.sectors = {};
+    this.byStacking = [];
+    this.byDistance = [];
   }
   AgentList.prototype = {
-    byStacking: [],
-    byDistance: [],
     length: 0,
+    numZombies: 0,
     push: function(item) {
       this.length++;
       this.byDistance.push(item);
       this.byStacking.push(item);
+    },
+    distanceSorterFrd: function(a, b) {
+      return a.distSquaredFrd - b.distSquaredFrd;
+    },
+    distanceSorter: function(a, b) {
+      return a.distSquared - b.distSquared;
+    },
+    stackingSorter: function(a, b) {
+      return a.y - b.y;
     },
     sort: function() {
       var byDistance = this.byDistance,
           byStacking = this.byStacking,
           len = this.length,
           i;
-      byDistance.sort(function(a, b) {
-        return a.distSquaredFrd - b.distSquaredFrd;
-      });
-      byStacking.sort(function(a, b) {
-        return a.y - b.y;
-      });
+      byDistance.sort(this.distanceSorterFrd);
+      byStacking.sort(this.stackingSorter);
       for (i = 0; i < len; i++) {
         byDistance[i].distanceIdx = i;
         byStacking[i].stackingIdx = i;
       }
     },
-    numZombies: 0,
     remove: function(agent) {
       var i,
           len = --this.length,
@@ -509,7 +511,7 @@
         currDist = (4 - i) / 4 * distance;
         for (var j = 0; j < 7; j++) {
           // 0 / 45 / -45 / 90 / - 90
-          currDir = normalizeDirection(direction + factor * (j % 2 === 0 ? 1 : -1) * round(j / 2 + 0.25) * PI / 4);
+          currDir = normalizeDirection(direction + factor * (j % 2 === 0 ? 1 : -1) * round(j / 2 + 0.25) * QUARTER_PI);
           currMove = this.validMoveFor(agent, currDir, currDist);
           if (currMove) {
             if (i > 0 || j > 0) {
@@ -560,7 +562,7 @@
           dist,
           seen = {};
       for (var i = range[0], last = range[1]; i <= last; i++) {
-        sector = this.sectors[i];
+        sector = sectors[i];
         if (!sector) continue;
         for (var j = 0, len = sector.length; j < len; j++) {
           other = sector[j];
@@ -575,11 +577,8 @@
     },
     closestCollision: function(agent) {
       var collisions = this.collisionsFor(agent);
-      if (collisions.length > 1) {
-        collisions.sort(function(a, b) {
-          return a.distSquared - b.distSquared;
-        });
-      }
+      if (collisions.length)
+        collisions.sort(this.distanceSorter);
       return collisions[0];
     },
     validMoveFor: function(agent, direction, distance) {
@@ -707,19 +706,16 @@
       }.bind(this), time);
     },
     closest: function() {
-      var closest = null,
-          agents = this.game.agents,
+      var agents = this.game.agents,
           len = agents.length,
           byDistance = agents.byDistance,
           agent;
       for (var i = 0; i < len; i++) {
         agent = byDistance[i];
-        if (agent.alive && agent.zombie) {
-          closest = agent;
-          break;
-        }
+        if (agent.alive && agent.zombie)
+          return agent;
       }
-      return closest;
+      return null;
     },
     render: function() {},
     nextMove: function() {},
@@ -770,8 +766,6 @@
       this.game.agents.push(this);
 
       if (target) {
-        var time = (this.timeToExplode + this.pulledPin - new Date().getTime());
-        var orig = target;
         target = target.projectedLocation(this.timeToExplode + this.pulledPin - new Date().getTime());
         var distX = target.x - this.x;
         var distY = target.y - this.y;
@@ -910,8 +904,6 @@
           var opacity = 0.5 * rand() + 0.1;
           context.fillStyle = 'rgba(' + r + ',' + g + ',' + b + ',' + opacity + ')';
           context.fill();
-          //context.strokeStyle = 'rgba(' + floor(r*0.9) + ',' + floor(g*0.9) + ',' + floor(b*0.9) + ',1)';
-          //context.stroke();
         }
         context.restore();
       }
@@ -1007,7 +999,7 @@
             continue;
           // will the shot hit this zombie?
           hitMargin = abs(atan2(agent.size / 4, sqrt(agent.distSquaredFrd)));
-          offBy =  abs(agent.optimalDirection - direction);
+          offBy = abs(agent.optimalDirection - direction);
           if (offBy < hitMargin) {
             hitCount++;
             agent.kill();
@@ -1144,8 +1136,7 @@
           game = this.game,
           threshold = this.pursuitThreshold || game.pursuitThreshold,
           distX = this.distX,
-          distY = this.distY,
-          dist;
+          distY = this.distY;
 
       if (!target || target.alive === false) return false;
       if (distX > threshold || distX < -threshold) return false;
@@ -1317,9 +1308,9 @@
     this.maskContext = this.mask.getContext('2d');
   }
   MouseTarget.prototype = {
-    caughtBy: function(){},
     trackable: true,
     size: 0,
+    caughtBy: function(){},
     set: function(x, y) {
       this.x = x;
       this.y = y;
@@ -1376,9 +1367,6 @@
     speed: 12,
     direction: 0,
     sprite: 0,
-    checkProximity: function() {
-      Tracker.prototype.checkProximity.call(this);
-    },
     targetVisible: function() {
       return true;
     },
@@ -1456,11 +1444,6 @@
       else if (key === 32 && this.weapon.firing) {
         this.weapon.fired();
       }
-    },
-    nextMove: function() {
-      var ret = Tracker.prototype.nextMove.call(this);
-      this.weapon.nextMove();
-      return ret;
     },
     prevWeapon: function() {
       this.weapons.unshift(this.weapons.pop());
