@@ -20,14 +20,29 @@
     <canvas></canvas>
     <script src="zomgbies.js"></script>
     <script>
-      var images = [];
-      for (var i = 1; i <= 16; i++) {
-        var image = new Image();
-        image.src = "images/agent" + i + ".png";
-        (function(image){
-          image.onload = function() { image.loaded = true; };
-        }).call(this, image);
-        images.push(image);
+      var images = [],
+          imageGroup,
+          image,
+          image10,
+          image30
+      for (var i = 1; i < 2; i++) {
+        imageGroup = [];
+        for (var j = 0; j < 8; j++) {
+          image10 = new Image();
+          image10.src = "images/agent" + i + "-" + j + "-0.png";
+          image30 = new Image();
+          image30.src = "images/agent" + i + "-" + j + "-1.png";
+          imageGroup.push([image10, image30]);
+        }
+        images.push(imageGroup);
+      }
+
+      for (var i = 2; i <= 16; i++) {
+        image10 = new Image();
+        image10.src = "images/agent" + i + "-1-0.png";
+        image30 = new Image();
+        image30.src = "images/agent" + i + "-3-0.png";
+        images.push([[image10, image10], [image10, image10], [image30, image30], [image30, image30], [image30, image30], [image30, image30], [image10, image10], [image10, image10]]);
       }
 
       Zomgbie(

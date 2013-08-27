@@ -264,7 +264,8 @@
       };
 
       Game.prototype.run = function() {
-        var now, _base;
+        var now, _base, _ref;
+        this.tick = (((_ref = this.tick) != null ? _ref : 0) + 1) % 2;
         if ((_base = this.times).nextTick == null) {
           _base.nextTick = this.times.started = new Date().getTime();
         }
@@ -640,7 +641,7 @@
         for (sector in sectors) {
           sectorCount++;
         }
-        board.renderText("sectors: " + sectorCount + "\nagents: " + agents.length + "\nrun: " + ((sum(times.run) / tickTime).toFixed(2)) + "%\nrender: " + ((sum(times.render) / tickTime).toFixed(2)) + "%", 24, "left", "top");
+        board.renderText("sectors: " + sectorCount + "\nagents: " + agents.length + "\n(run: " + ((sum(times.run) / tickTime).toFixed(2)) + "%\nrender: " + ((sum(times.render) / tickTime).toFixed(2)) + "%", 24, "left", "top");
       };
 
       Stats.prototype.render = function(board) {
@@ -1631,6 +1632,10 @@
 
       Tracker.prototype.deviations = 0;
 
+      Tracker.prototype.step = 0;
+
+      Tracker.prototype.traveled = 0;
+
       Tracker.prototype.collisionMechanism = function(other) {
         return 'avoid';
       };
@@ -1642,7 +1647,7 @@
 
       Tracker.prototype.randomEdgeStart = function(board) {
         var height, sprite, startPos, width;
-        sprite = this.game.config.sprites[this.sprite];
+        sprite = this.game.config.sprites[this.sprite][0][0];
         width = board.width;
         height = board.height;
         startPos = rand() * 2 * (width + height);
@@ -1667,7 +1672,11 @@
           return;
         }
         context = board.context;
-        sprite = this.game.config.sprites[this.sprite];
+        sprite = this.game.config.sprites[this.sprite][round(8 + this.direction / QUARTER_PI) % 8];
+        sprite = sprite[this.step];
+        if (!sprite) {
+          debugger;
+        }
         decayTime = this.decayTime;
         maxDecayTime = this.maxDecayTime;
         x = this.x - board.x;
@@ -1880,6 +1889,7 @@
         game = this.game;
         if (distSquared < minCaptureDist * minCaptureDist) {
           if (distSquared < speedSquared) {
+            this.takeStep(sqrt(distSquared));
             this.set(target.x, target.y);
           } else {
             this.move(this.optimalDirection, speed);
@@ -1919,11 +1929,20 @@
         }
       };
 
-      Tracker.prototype.move = function(direction, distance) {
+      Tracker.prototype.takeStep = function(dist) {
+        this.traveled = round(this.traveled + dist) % 64;
+        return this.step = round(this.traveled / 32) % 2;
+      };
+
+      Tracker.prototype.move = function(direction, distance, force) {
         var frd;
+        if (force == null) {
+          force = true;
+        }
         if (frd = this.agents.bestMoveFor(this, direction, distance)) {
           this.direction = frd.direction;
           this.currentSpeed = frd.distance;
+          this.takeStep(this.currentSpeed);
           this.set(frd.x, frd.y);
         }
       };

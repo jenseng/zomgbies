@@ -216,6 +216,7 @@
       ret
 
     run: =>
+      @tick = ((@tick ? 0) + 1) % 2
       @times.nextTick ?= @times.started = new Date().getTime()
       @times.nextTick += @tickTime
 
@@ -491,7 +492,7 @@
       board.renderText """
           sectors: #{sectorCount}
           agents: #{agents.length}
-          run: #{(sum(times.run) / tickTime).toFixed(2)}%
+          (run: #{(sum(times.run) / tickTime).toFixed(2)}%
           render: #{(sum(times.render) / tickTime).toFixed(2)}%
         """, 24, "left", "top"
       #board.renderText, """
@@ -1305,6 +1306,8 @@
     patrolWobble: 30
     maxDecayTime: 160
     deviations: 0
+    step: 0
+    traveled: 0
 
     collisionMechanism: (other) ->
       'avoid'
@@ -1315,7 +1318,7 @@
       return
 
     randomEdgeStart: (board) ->
-      sprite = @game.config.sprites[@sprite]
+      sprite = @game.config.sprites[@sprite][0][0]
       width = board.width
       height = board.height
       startPos = rand() * 2 * (width + height)
@@ -1336,7 +1339,9 @@
     render: (board) ->
       return unless board.visible(@x, @y, 50, 100, 50)
       context = board.context
-      sprite = @game.config.sprites[@sprite]
+      sprite = @game.config.sprites[@sprite][round(8 + @direction / QUARTER_PI) % 8]
+      sprite = sprite[@step]
+      debugger unless sprite
       decayTime = @decayTime
       maxDecayTime = @maxDecayTime
       x = @x - board.x
@@ -1503,6 +1508,7 @@
       game = @game
       if distSquared < minCaptureDist * minCaptureDist # jump to target
         if distSquared < speedSquared
+          @takeStep sqrt(distSquared)
           @set target.x, target.y
         else
           @move @optimalDirection, speed
@@ -1536,10 +1542,15 @@
         @restTime = duration
         @restRequired = required
 
-    move: (direction, distance) ->
+    takeStep: (dist) ->
+      @traveled = round(@traveled + dist) % 64
+      @step = round(@traveled / 32) % 2
+
+    move: (direction, distance, force = true) ->
       if frd = @agents.bestMoveFor(this, direction, distance)
         @direction = frd.direction
         @currentSpeed = frd.distance
+        @takeStep(@currentSpeed)
         @set frd.x, frd.y
       return
 
