@@ -22,7 +22,9 @@
   QUARTER_PI = PI / 4
   TAU = PI * 2
   SQRT_2 = sqrt(2)
-  SPRITE_BOTTOM_PADDING = 14
+  SPRITE_WIDTH = 36
+  SPRITE_HEIGHT = 72
+  AGENT_HEIGHT = 58
 
   # totally useless "accessibility"
   $status = $("<div>", style: "position: relative; z-index: -1; overflow: hidden; width: 0; height: 0;", "aria-live": "polite", "role": "log").appendTo($(document.body))
@@ -75,12 +77,14 @@
     sqrt(a * a + b * b)
 
   checkCollision = (otherX, otherY, otherSize, otherZ, otherHeight) ->
-    distY = abs(@y - otherY)
+    diffY = @y - otherY
+    distY = abs(diffY)
     minDist = (@size + otherSize) / 2
     minDistSquared = minDist * minDist
     return false if distY > minDist
 
-    distX = abs(@x - otherX)
+    diffX = @x - otherX
+    distX = abs(diffX)
     return false if distX > minDist
 
     distSquared = distX * distX + distY * distY
@@ -88,7 +92,7 @@
 
     return false if @z isnt otherZ and (@z + @height < otherZ || otherZ + otherHeight < @z)
 
-    {direction: atan2(distY, distX), distSquared}
+    {direction: atan2(diffY, diffX), distSquared}
 
   sectorCoord = (n) ->
     floor(n / sectorSize)
@@ -102,28 +106,45 @@
     sum += i for i in array
     sum
 
+  register = (name, constructor) ->
+    @types ?= {}
+    constructor::name = name
+    @types[name] = constructor
+
+  factory = (name, args...) ->
+    new @types[name](args...)
+
   Zomgbie = ($canvas, options) ->
     new Game($canvas, options).run()
 
+  Zomgbie.registerExtension = (type, name, constructor) ->
+    if type is 'weapon'
+      Weapon.register name, constructor
+    else if type is 'structure'
+      Structure.register name, constructor
+
   class Game
     constructor: (@$canvas, options) ->
-      @config = $.extend({}, @config, options, true)
+      config = @config = $.extend({}, @config, options, true)
 
       @board = new Board(this, $canvas)
       @agents = new AgentList(this)
       @mouseTarget = new MouseTarget(@board)
-      if @config.mode is 'observe'
-        @config.patrolCorrection = 1
-        @config.pursueTargets = false
+      for name, args of config.structures ? {}
+        @agents.push Structure.factory(name, this, args...)
+
+      if config.mode is 'observe'
+        config.patrolCorrection = 1
+        config.pursueTargets = false
         @addAllZombies()
       else
         @stats = new Stats(this)
         @player = new Player(this, @mouseTarget)
-        @agents.push(@player)
-      @addListeners($canvas)
+        @agents.push @player
+      @addListeners $canvas
 
-      @setPursuitThreshold(@config.pursuitThreshold)
-      @tickTime = floor(1000 / @config.ticksPerSecond)
+      @setPursuitThreshold config.pursuitThreshold
+      @tickTime = floor(1000 / config.ticksPerSecond)
       @times = run: [], render: []
 
     config:
@@ -512,6 +533,7 @@
       {x, y, factor}
 
     set: (agent, x, y, z = agent.z, size = agent.size) ->
+      debugger if x.toString() is 'NaN'
       return if agent.x is x and agent.y is y and agent.z is z and agent.size is size
       rangeOld = agent.sectorRange()
       agent.x = x
@@ -582,15 +604,8 @@
   class Weapon
     constructor: (@game, @player) ->
 
-    @factory = (name, game, player) ->
-      constructor = {
-        colt: Colt,
-        sword: Sword,
-        grenades: Grenades
-      }[name]
-      weapon = new constructor(game, player)
-      weapon.name = name
-      weapon
+    @register = register
+    @factory = factory
 
     ready: true
 
@@ -635,7 +650,7 @@
     distractDiameter: 1000
     speed: 64
     size: 6
-    decel: 12 # when it hits the ground
+    decel: 6 # when it hits the ground
     object: true
     distance: 0
 
@@ -808,9 +823,9 @@
       else
         context.beginPath()
         context.arc @x, @y / 2 - @z - 3, 3, 0, TAU
-        context.fillStyle = '#080'
+        context.fillStyle = '#ab9'
         context.fill()
-        context.strokeStyle = '#000'
+        context.strokeStyle = '#786'
         context.stroke()
       return
 
@@ -916,6 +931,11 @@
         lastShot.visibleTime--
       return
 
+
+  Weapon.register 'grenades', Grenades
+  Weapon.register 'sword', Sword
+  Weapon.register 'colt', Colt
+
   class Tracker
     constructor: (game, @target) ->
       @game = game
@@ -966,16 +986,16 @@
           context.globalAlpha = if decayTime > maxDecayTime / 2 then 1 else 2 * decayTime / maxDecayTime
         context.translate round(@x), round(@y / 2)
         context.rotate HALF_PI
-        context.drawImage sprite, -sprite.width, -sprite.height / 2
+        context.drawImage sprite, -sprite.width/2 - 6, -sprite.height/2
         context.restore()
       else
-        context.drawImage sprite, round(@x - sprite.width / 2), round(@y / 2 - sprite.height)
+        context.drawImage sprite, round(@x - sprite.width / 2), round(@y / 2 - AGENT_HEIGHT)
       return
 
     renderShadow: (board) ->
       context = board.context
       x = @x
-      y = @y - 2*SPRITE_BOTTOM_PADDING
+      y = @y
       context.save()
       context.scale 1, 0.5
       context.globalAlpha = 0.05
@@ -986,8 +1006,7 @@
       if time = (@sleepTime or @decayTime)
         @blood ?= @bloodStain()
         halfLife = (@totalSleepTime or @maxDecayTime) / 2
-        if time < halfLife
-          context.globalAlpha = time / halfLife
+        context.globalAlpha = if time < halfLife then time / halfLife else 1
         context.drawImage @blood, x - 36, y - 36
       context.restore()
 
@@ -1006,7 +1025,7 @@
         x = 36 + 10 * (0.5 - rand()) * size
         y = 36 + 5 * (0.5 - rand()) * size
         context.arc x, y, rad, 0, TAU
-        context.fillStyle = 'rgba(128,0,0,1)'
+        context.fillStyle = 'rgba(160,48,48,1)'
         context.fill()
       canvas
 
@@ -1348,11 +1367,59 @@
       context.scale 1, 0.5
       context.globalAlpha = 0.25
       context.beginPath()
-      context.arc @x, @y - 2*SPRITE_BOTTOM_PADDING, @game.pursuitThreshold, 0, TAU
-      context.fillStyle = '#ffd'
+      context.arc @x, @y, @game.pursuitThreshold, 0, TAU
+      context.fillStyle = '#ffe'
       context.fill()
       context.restore()
       return
+
+  class Structure
+    @register = register
+    @factory = factory
+
+    constructor: (@game) ->
+      window.game = @game
+      @agents = agents = @game.agents
+      agents.addToSectors this, @sectorRange()
+
+    sectorRange: sectorRange
+    nextMove: -> true
+    render: ->
+    renderShadow: ->
+    checkCollision: checkCollision
+    distance: 0
+
+  class FarmHouse extends Structure
+    #x: 1124
+    #y: 1408
+    x: 892
+    y: 780
+    size: 434
+    imageYOffset: 352
+
+    constructor: (@game) ->
+      super
+      @image = image = new Image()
+      image.src = "images/farmhouse.png"
+
+    checkCollision: (otherX, otherY, otherSize) ->
+      diffX = @x - otherX
+      diffY = @y - otherY
+      distX = abs(diffX)
+      distY = abs(diffY)
+      manhattanishDist = distX + distY - (otherSize / 2)
+      return false if manhattanishDist > @size/2 # distance from center of house to corner
+      {direction: atan2(diffY, diffX), distSquared: distX * distX + distY * distY}
+
+    render: (board) ->
+      context = board.context
+      context.save()
+      context.globalAlpha = 0.8
+      context.drawImage @image, @x - @size/2, @y/2 - @imageYOffset
+      context.restore()
+      return
+
+  Structure.register 'farmhouse', FarmHouse
 
   window.Zomgbie = Zomgbie
 )($)
