@@ -6,7 +6,7 @@
     __extends = function(child, parent) { for (var key in parent) { if (__hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; };
 
   (function($) {
-    var $status, AgentList, Board, Colt, Game, Grenade, Grenades, HALF_PI, MouseTarget, PI, Player, QUARTER_PI, SQRT_2, Stats, Sword, TAU, Tracker, Weapon, Zombie, Zomgbie, abs, atan2, ceil, checkCollision, cos, floor, gravity, hypotenuse, lastRead, makeObservation, max, min, normalizeDirection, pick, pixelsPerMeter, pow, rand, read, round, sectorCoord, sectorRange, sectorSize, sin, sqrt, sum, _ref, _ref1, _ref2;
+    var $status, AgentList, Board, Colt, Game, Grenade, Grenades, HALF_PI, MouseTarget, PI, Player, QUARTER_PI, SPRITE_BOTTOM_PADDING, SQRT_2, Stats, Sword, TAU, Tracker, Weapon, Zombie, Zomgbie, abs, atan2, ceil, checkCollision, cos, floor, gravity, hypotenuse, lastRead, makeObservation, max, min, normalizeDirection, pick, pixelsPerMeter, pow, rand, read, round, sectorCoord, sectorRange, sectorSize, sin, sqrt, sum, _ref, _ref1, _ref2;
     sectorSize = 36;
     pixelsPerMeter = 36;
     gravity = 9.8 * pixelsPerMeter;
@@ -27,6 +27,7 @@
     QUARTER_PI = PI / 4;
     TAU = PI * 2;
     SQRT_2 = sqrt(2);
+    SPRITE_BOTTOM_PADDING = 14;
     $status = $("<div>", {
       style: "position: relative; z-index: -1; overflow: hidden; width: 0; height: 0;",
       "aria-live": "polite",
@@ -302,28 +303,10 @@
         this.height = this.canvas.height * 2;
       };
 
-      Board.prototype.renderRadius = function() {
-        var context, game, player;
-        context = this.context;
-        game = this.game;
-        player = game.player;
-        context.save();
-        context.scale(1, 0.5);
-        context.globalAlpha = 0.25;
-        context.beginPath();
-        context.arc(player.x, player.y - player.size, game.pursuitThreshold, 0, TAU);
-        context.fillStyle = '#ffd';
-        context.fill();
-        context.restore();
-      };
-
       Board.prototype.render = function() {
-        var arg, arg2, args, _i, _j, _len, _len1, _ref;
+        var arg, arg2, args, _i, _j, _len, _len1;
         args = 1 <= arguments.length ? __slice.call(arguments, 0) : [];
         this.context.clearRect(0, 0, this.width, this.height);
-        if ((_ref = this.game.player) != null ? _ref.alive : void 0) {
-          this.renderRadius();
-        }
         for (_i = 0, _len = args.length; _i < _len; _i++) {
           arg = args[_i];
           if (arg.render) {
@@ -747,10 +730,15 @@
       };
 
       AgentList.prototype.render = function(board) {
-        var agent, _i, _len, _ref;
+        var agent, _i, _j, _len, _len1, _ref, _ref1;
         _ref = this.byStacking;
         for (_i = 0, _len = _ref.length; _i < _len; _i++) {
           agent = _ref[_i];
+          agent.renderShadow(board);
+        }
+        _ref1 = this.byStacking;
+        for (_j = 0, _len1 = _ref1.length; _j < _len1; _j++) {
+          agent = _ref1[_j];
           agent.render(board);
         }
       };
@@ -887,6 +875,10 @@
 
       Grenade.prototype.checkCollision = checkCollision;
 
+      Grenade.prototype.animationTime = 240;
+
+      Grenade.prototype.animationTimeExplosion = 15;
+
       Grenade.prototype.explode = function() {
         var agents, explode, hit, pin, player, sounds;
         agents = this.game.agents;
@@ -907,7 +899,6 @@
         this.speed = 0;
         this.zSpeed = 0;
         this.exploded = true;
-        this.explodeTime = 30;
       };
 
       Grenade.prototype.caughtBy = function(agent) {
@@ -921,40 +912,42 @@
       };
 
       Grenade.prototype.nextMove = function() {
-        var agent, casualties, distractDiameter, explodeTime, game, hit, hitCount, info, killRadiusSquared, maimRadiusSquared, player, stunRadiusSquared, _i, _len;
-        if (explodeTime = this.explodeTime) {
-          if (explodeTime === 30) {
-            this.set(this.x, this.y, this.z, 96);
-            hitCount = 0;
-            player = this.player;
-            killRadiusSquared = this.killRadiusSquared;
-            maimRadiusSquared = this.maimRadiusSquared;
-            stunRadiusSquared = this.stunRadiusSquared;
-            distractDiameter = this.distractDiameter;
-            game = this.game;
-            casualties = game.agents.collisionsFor(this, this.x, this.y, distractDiameter);
-            for (_i = 0, _len = casualties.length; _i < _len; _i++) {
-              info = casualties[_i];
-              agent = info.agent;
-              if (!agent.alive) {
-                continue;
-              }
-              if (info.distSquared < killRadiusSquared) {
-                agent.kill();
-              } else if (info.distSquared < maimRadiusSquared) {
-                agent.maim(floor(50 + 100 * (1 - info.distSquared / maimRadiusSquared)));
-              } else if (agent !== this.player) {
-                if (info.distSquared < stunRadiusSquared) {
-                  agent.stun(floor(25 + 50 * (1 - info.distSquared / stunRadiusSquared)));
-                } else {
-                  agent.distract(this, 60 + floor(60 * rand()), distractDiameter);
-                }
+        var agent, casualties, distractDiameter, game, hit, hitCount, info, killRadiusSquared, maimRadiusSquared, player, stunRadiusSquared, _i, _len,
+          _this = this;
+        if (this.exploded) {
+          this.nextMove = function() {
+            return --_this.animationTime;
+          };
+          this.set(this.x, this.y, this.z, 96);
+          hitCount = 0;
+          player = this.player;
+          killRadiusSquared = this.killRadiusSquared;
+          maimRadiusSquared = this.maimRadiusSquared;
+          stunRadiusSquared = this.stunRadiusSquared;
+          distractDiameter = this.distractDiameter;
+          game = this.game;
+          casualties = game.agents.collisionsFor(this, this.x, this.y, distractDiameter);
+          for (_i = 0, _len = casualties.length; _i < _len; _i++) {
+            info = casualties[_i];
+            agent = info.agent;
+            if (!agent.alive) {
+              continue;
+            }
+            if (info.distSquared < killRadiusSquared) {
+              agent.kill();
+            } else if (info.distSquared < maimRadiusSquared) {
+              agent.maim(floor(50 + 100 * (1 - info.distSquared / maimRadiusSquared)));
+            } else if (agent !== this.player) {
+              if (info.distSquared < stunRadiusSquared) {
+                agent.stun(floor(25 + 50 * (1 - info.distSquared / stunRadiusSquared)));
+              } else {
+                agent.distract(this, 60 + floor(60 * rand()), distractDiameter);
               }
             }
-            game.noise(0.5);
-            read(pick("hahaha", "awesome, " + hitCount, "got " + hitCount, "haha, you blew up " + hitCount, "ha, got " + hitCount, "that'll teach them", "it's raining arms", "i love grenades"));
           }
-          this.explodeTime--;
+          game.noise(0.5);
+          read(pick("hahaha", "awesome, " + hitCount, "got " + hitCount, "haha, you blew up " + hitCount, "ha, got " + hitCount, "that'll teach them", "it's raining arms", "i love grenades"));
+          this.animationTime--;
         } else if (this.speed > 0) {
           this.z += this.zSpeed;
           if (this.z <= 0) {
@@ -974,15 +967,46 @@
           }
           this.set(this.x + this.speed * cos(this.direction), this.y + this.speed * sin(this.direction));
         }
-        return !this.exploded || this.explodeTime;
+        return true;
+      };
+
+      Grenade.prototype.renderShadow = function(board) {
+        var context, game, gradient, x, y;
+        context = board.context;
+        game = this.game;
+        x = this.x;
+        y = this.y;
+        context.save();
+        context.scale(1, 0.5);
+        if (this.exploded) {
+          context.globalAlpha = this.animationTime / Grenade.prototype.animationTime;
+          context.beginPath();
+          context.arc(x, y, 40, 0, TAU);
+          gradient = context.createRadialGradient(x, y, 40, x, y, 0);
+          gradient.addColorStop(0, 'rgba(0,0,0,0)');
+          gradient.addColorStop(0.8, 'rgba(32,24,16,0.5)');
+          gradient.addColorStop(1, 'rgba(32,24,16,1)');
+          context.fillStyle = gradient;
+          context.fill();
+        } else {
+          context.beginPath();
+          context.globalAlpha = 0.2;
+          context.arc(x, y, 3, 0, TAU);
+          context.fillStyle = '#000';
+          context.fill();
+        }
+        return context.restore();
       };
 
       Grenade.prototype.render = function(board) {
         var animationTime, b, circles, context, fade, g, gray, i, opacity, r, rad, size, x, y, _i;
         context = board.context;
         if (this.exploded) {
+          animationTime = this.animationTimeExplosion - (Grenade.prototype.animationTime - this.animationTime);
+          if (!(animationTime > 0)) {
+            return;
+          }
           context.save();
-          animationTime = max(0, this.explodeTime - 15);
           fade = animationTime < 12 ? animationTime / 12 : 1;
           fade = fade * fade * fade;
           context.globalAlpha = fade;
@@ -1006,7 +1030,7 @@
           context.restore();
         } else {
           context.beginPath();
-          context.arc(this.x, this.y / 2 - this.z, 3, 0, TAU);
+          context.arc(this.x, this.y / 2 - this.z - 3, 3, 0, TAU);
           context.fillStyle = '#080';
           context.fill();
           context.strokeStyle = '#000';
@@ -1250,7 +1274,49 @@
         }
       };
 
+      Tracker.prototype.renderShadow = function(board) {
+        var context, time, x, y;
+        context = board.context;
+        x = this.x;
+        y = this.y - 2 * SPRITE_BOTTOM_PADDING;
+        context.save();
+        context.scale(1, 0.5);
+        context.globalAlpha = 0.05;
+        context.beginPath();
+        context.arc(x, y, 10, 0, TAU);
+        context.fillStyle = '#000';
+        context.fill();
+        if (time = this.sleepTime || this.decayTime) {
+          if (this.blood == null) {
+            this.blood = this.bloodStain();
+          }
+          context.globalAlpha = time / (this.totalSleepTime || this.maxDecayTime);
+          context.drawImage(this.blood, x - 36, y - 36);
+        }
+        return context.restore();
+      };
+
       Tracker.prototype.sectorRange = sectorRange;
+
+      Tracker.prototype.bloodStain = function() {
+        var canvas, circles, context, i, rad, size, x, y, _i;
+        canvas = document.createElement('canvas');
+        context = canvas.getContext('2d');
+        canvas.width = 72;
+        canvas.height = 72;
+        circles = this.alive ? 5 : 10;
+        size = 5;
+        for (i = _i = 0; 0 <= circles ? _i < circles : _i > circles; i = 0 <= circles ? ++_i : --_i) {
+          context.beginPath();
+          rad = (1 + rand()) * size;
+          x = 36 + 10 * (0.5 - rand()) * size;
+          y = 36 + 5 * (0.5 - rand()) * size;
+          context.arc(x, y, rad, 0, TAU);
+          context.fillStyle = 'rgba(128,0,0,1)';
+          context.fill();
+        }
+        return canvas;
+      };
 
       Tracker.prototype.nextMove = function() {
         this.currentSpeed = 0;
@@ -1262,7 +1328,7 @@
         }
         this.checkProximity();
         if (this.sleepTime) {
-          this.sleepTime--;
+          --this.sleepTime || (this.blood = null);
         } else if (this.manual && !this.restRequired) {
           this.manualMove();
         } else if (this.game.config.pursueTargets && this.targetVisible() && !this.restRequired) {
@@ -1442,7 +1508,7 @@
       };
 
       Tracker.prototype.maim = function(time) {
-        this.sleepTime = floor(time);
+        this.totalSleepTime = this.sleepTime = floor(time);
       };
 
       Tracker.prototype.stun = function(time) {
@@ -1588,7 +1654,7 @@
         zombie.sprite = 0;
         zombie.direction = 0;
         zombie.set(this.x, this.y + 1);
-        zombie.sleepTime = 40;
+        zombie.maim(40);
         this.agents.push(zombie);
       };
 
@@ -1676,6 +1742,20 @@
       Player.prototype.nextWeapon = function() {
         this.weapons.push(this.weapons.shift());
         this.weapon = this.weapons[0];
+      };
+
+      Player.prototype.renderShadow = function(board) {
+        var context;
+        Player.__super__.renderShadow.apply(this, arguments);
+        context = board.context;
+        context.save();
+        context.scale(1, 0.5);
+        context.globalAlpha = 0.25;
+        context.beginPath();
+        context.arc(this.x, this.y - 2 * SPRITE_BOTTOM_PADDING, this.game.pursuitThreshold, 0, TAU);
+        context.fillStyle = '#ffd';
+        context.fill();
+        context.restore();
       };
 
       return Player;

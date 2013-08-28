@@ -6,8 +6,26 @@ A little zombie game written in ~~JavaScript~~ CoffeeScript
 
 ## TODO
 
+* obstacles (buildings, etc.)
+* fix stats
+* what to do with edge of board (wrap? scroll?)
+* moar sprites
+  * have soft thresholds for switching directional sprites (so no jitters)
+* sounds
+  * zombies
+* animations
+  * better grenade
+  * gunshot
+* weapons
+  * sword
+  * flamethrower (hold mouse/space allows aiming via mouse/keyboard)
+  * grenade bonus (hold mouse/space allows further distance, maybe aim?)
+* spawn weapons, bonuses
+* agent health
 * detect player->zombie collisions
   * chance to knock over zombie if just grazed (not full on collision)
+* don't retrack on every tick, have some variation (some zombies more
+  reactive than other). when not retracking, continue current action/path
 * redo run loop and all timing stuff, i.e.
   * decouple render and use requestAnimationFrame (but just for rendering)
   * no setTimeout except for main run loop
@@ -15,15 +33,4 @@ A little zombie game written in ~~JavaScript~~ CoffeeScript
     slow machines we can have a higher nextTick if needed
 * better HUD
 * high scores
-* moar sprites
-* sounds
-  * zombies
-* animations
-  * better grenade
-  * gunshot
-  * blood
-* weapons
-  * sword
-  * flamethrower (hold mouse/space allows aiming via mouse/keyboard)
-  * grenade bonus (hold mouse/space allows further distance, maybe aim?)
 * ai mode (watch through binoculars)

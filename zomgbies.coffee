@@ -22,6 +22,7 @@
   QUARTER_PI = PI / 4
   TAU = PI * 2
   SQRT_2 = sqrt(2)
+  SPRITE_BOTTOM_PADDING = 14
 
   # totally useless "accessibility"
   $status = $("<div>", style: "position: relative; z-index: -1; overflow: hidden; width: 0; height: 0;", "aria-live": "polite", "role": "log").appendTo($(document.body))
@@ -110,7 +111,7 @@
 
       @board = new Board(this, $canvas)
       @agents = new AgentList(this)
-      @mouseTarget = new MouseTarget(@board);
+      @mouseTarget = new MouseTarget(@board)
       if @config.mode is 'observe'
         @config.patrolCorrection = 1
         @config.pursueTargets = false
@@ -250,25 +251,8 @@
       @height = @canvas.height * 2
       return
 
-    renderRadius: ->
-      context = @context
-      game = @game
-      player = game.player
-      context.save()
-      context.scale 1, 0.5
-      context.globalAlpha = 0.25
-      context.beginPath()
-      # TODO should y really use size?
-      context.arc player.x, player.y - player.size, game.pursuitThreshold, 0, TAU
-      context.fillStyle = '#ffd'
-      context.fill()
-      context.restore()
-      return
-
     render: (args...) ->
       @context.clearRect 0, 0, @width, @height
-      if @game.player?.alive
-        @renderRadius()
       for arg in args
         if arg.render
           arg.render(this)
@@ -590,6 +574,8 @@
 
     render: (board) ->
       for agent in @byStacking
+        agent.renderShadow board
+      for agent in @byStacking
         agent.render board
       return
 
@@ -692,6 +678,9 @@
 
     checkCollision: checkCollision
 
+    animationTime: 240
+    animationTimeExplosion: 15
+
     explode: =>
       agents = @game.agents
       sounds = @sounds
@@ -711,7 +700,6 @@
       @speed = 0
       @zSpeed = 0
       @exploded = true
-      @explodeTime = 30
       return
 
     caughtBy: (agent) ->
@@ -724,32 +712,32 @@
       return
 
     nextMove: ->
-      if explodeTime = @explodeTime
-        if explodeTime is 30
-          @set @x, @y, @z, 96
-          hitCount = 0
-          player = @player
-          killRadiusSquared = @killRadiusSquared
-          maimRadiusSquared = @maimRadiusSquared
-          stunRadiusSquared = @stunRadiusSquared
-          distractDiameter = @distractDiameter
-          game = @game
-          casualties = game.agents.collisionsFor(this, @x, @y, distractDiameter)
-          for info in casualties
-            agent = info.agent
-            continue unless agent.alive
-            if info.distSquared < killRadiusSquared
-              agent.kill()
-            else if info.distSquared < maimRadiusSquared
-              agent.maim floor(50 + 100 * (1 - info.distSquared / maimRadiusSquared))
-            else if agent isnt @player
-              if info.distSquared < stunRadiusSquared
-                agent.stun floor(25 + 50 * (1 - info.distSquared / stunRadiusSquared))
-              else
-                agent.distract this, 60 + floor(60 * rand()), distractDiameter
-          game.noise 0.5
-          read pick("hahaha", "awesome, " + hitCount, "got " + hitCount, "haha, you blew up " + hitCount, "ha, got " + hitCount, "that'll teach them", "it's raining arms", "i love grenades")
-        @explodeTime--
+      if @exploded
+        @nextMove = => --@animationTime
+        @set @x, @y, @z, 96
+        hitCount = 0
+        player = @player
+        killRadiusSquared = @killRadiusSquared
+        maimRadiusSquared = @maimRadiusSquared
+        stunRadiusSquared = @stunRadiusSquared
+        distractDiameter = @distractDiameter
+        game = @game
+        casualties = game.agents.collisionsFor(this, @x, @y, distractDiameter)
+        for info in casualties
+          agent = info.agent
+          continue unless agent.alive
+          if info.distSquared < killRadiusSquared
+            agent.kill()
+          else if info.distSquared < maimRadiusSquared
+            agent.maim floor(50 + 100 * (1 - info.distSquared / maimRadiusSquared))
+          else if agent isnt @player
+            if info.distSquared < stunRadiusSquared
+              agent.stun floor(25 + 50 * (1 - info.distSquared / stunRadiusSquared))
+            else
+              agent.distract this, 60 + floor(60 * rand()), distractDiameter
+        game.noise 0.5
+        read pick("hahaha", "awesome, " + hitCount, "got " + hitCount, "haha, you blew up " + hitCount, "ha, got " + hitCount, "that'll teach them", "it's raining arms", "i love grenades")
+        @animationTime--
       else if @speed > 0
         @z += @zSpeed
         if @z <= 0
@@ -764,13 +752,39 @@
         else
           @zSpeed -= @gravityPerTick
         @set @x + @speed * cos(@direction), @y + @speed * sin(@direction)
-      not @exploded or @explodeTime
+      true
+
+    renderShadow: (board) ->
+      context = board.context
+      game = @game
+      x = @x
+      y = @y
+      context.save()
+      context.scale 1, 0.5
+      if @exploded
+        context.globalAlpha = @animationTime / Grenade::animationTime
+        context.beginPath()
+        context.arc x, y, 40, 0, TAU
+        gradient = context.createRadialGradient(x, y, 40, x, y, 0)
+        gradient.addColorStop(0, 'rgba(0,0,0,0)')
+        gradient.addColorStop(0.8, 'rgba(32,24,16,0.5)')
+        gradient.addColorStop(1, 'rgba(32,24,16,1)')
+        context.fillStyle = gradient
+        context.fill()
+      else
+        context.beginPath()
+        context.globalAlpha = 0.2
+        context.arc x, y, 3, 0, TAU
+        context.fillStyle = '#000'
+        context.fill()
+      context.restore()
 
     render: (board) ->
       context = board.context
       if @exploded
+        animationTime = @animationTimeExplosion - (Grenade::animationTime - @animationTime)
+        return unless animationTime > 0
         context.save()
-        animationTime = max(0, @explodeTime - 15)
         fade = if animationTime < 12 then animationTime / 12 else 1
         fade = fade * fade * fade
         context.globalAlpha = fade
@@ -793,7 +807,7 @@
         context.restore()
       else
         context.beginPath()
-        context.arc @x, @y / 2 - @z, 3, 0, TAU
+        context.arc @x, @y / 2 - @z - 3, 3, 0, TAU
         context.fillStyle = '#080'
         context.fill()
         context.strokeStyle = '#000'
@@ -958,7 +972,43 @@
         context.drawImage sprite, round(@x - sprite.width / 2), round(@y / 2 - sprite.height)
       return
 
+    renderShadow: (board) ->
+      context = board.context
+      x = @x
+      y = @y - 2*SPRITE_BOTTOM_PADDING
+      context.save()
+      context.scale 1, 0.5
+      context.globalAlpha = 0.05
+      context.beginPath()
+      context.arc x, y, 10, 0, TAU
+      context.fillStyle = '#000'
+      context.fill()
+      if time = (@sleepTime or @decayTime)
+        @blood ?= @bloodStain()
+        halfLife = (@totalSleepTime or @maxDecayTime) / 2
+        if time < halfLife
+          context.globalAlpha = time / halfLife
+        context.drawImage @blood, x - 36, y - 36
+      context.restore()
+
     sectorRange: sectorRange
+
+    bloodStain: ->
+      canvas = document.createElement('canvas')
+      context = canvas.getContext('2d')
+      canvas.width = 72
+      canvas.height = 72
+      circles = if @alive then 5 else 10
+      size = 5
+      for i in [0...circles]
+        context.beginPath()
+        rad = (1 + rand()) * size
+        x = 36 + 10 * (0.5 - rand()) * size
+        y = 36 + 5 * (0.5 - rand()) * size
+        context.arc x, y, rad, 0, TAU
+        context.fillStyle = 'rgba(128,0,0,1)'
+        context.fill()
+      canvas
 
     nextMove: ->
       @currentSpeed = 0
@@ -969,7 +1019,7 @@
       @checkProximity()
 
       if @sleepTime
-        @sleepTime--
+        --@sleepTime or @blood = null
       else if @manual and !@restRequired
         @manualMove()
       else if @game.config.pursueTargets and @targetVisible() and not @restRequired
@@ -1090,7 +1140,7 @@
       if not duration?
         @restTime--
         if not @restTime
-          @restRequired = false;
+          @restRequired = false
       else
         @restTime = duration
         @restRequired = required
@@ -1112,7 +1162,7 @@
       return
 
     maim: (time) ->
-      @sleepTime = floor(time)
+      @totalSleepTime = @sleepTime = floor(time)
       return
 
     stun: (time) ->
@@ -1217,7 +1267,7 @@
       zombie.sprite = 0
       zombie.direction = 0
       zombie.set(@x, @y + 1) # js sort isn't stable, so we want the zombie consistently in the front during rest
-      zombie.sleepTime = 40
+      zombie.maim(40)
       @agents.push zombie
       return
 
@@ -1291,5 +1341,18 @@
       @weapon = @weapons[0]
       return
 
-  window.Zomgbie = Zomgbie;
+    renderShadow: (board) ->
+      super
+      context = board.context
+      context.save()
+      context.scale 1, 0.5
+      context.globalAlpha = 0.25
+      context.beginPath()
+      context.arc @x, @y - 2*SPRITE_BOTTOM_PADDING, @game.pursuitThreshold, 0, TAU
+      context.fillStyle = '#ffd'
+      context.fill()
+      context.restore()
+      return
+
+  window.Zomgbie = Zomgbie
 )($)
