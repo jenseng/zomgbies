@@ -105,13 +105,13 @@
       return [sectorCoord(x - size / 2), sectorCoord(x + size / 2)];
     };
     sum = function(array) {
-      var i, _i, _len;
-      sum = 0;
+      var cnt, i, _i, _len;
+      cnt = 0;
       for (_i = 0, _len = array.length; _i < _len; _i++) {
         i = array[_i];
-        sum += i;
+        cnt += i;
       }
-      return sum;
+      return cnt;
     };
     register = function(name, constructor) {
       if (this.types == null) {
@@ -491,7 +491,7 @@
           this.renderDebug(board);
         }
         this.renderText(board, "kills: " + this.kills + "\nstreak: " + this.killStreak + " (" + this.maxKillStreak + ")\ncombo: " + this.maxCombo, 30, "left", "bottom");
-        this.renderText(board, "walkers: " + this.game.agents.numZombies + "\n< weapon: " + weapon.name + " >\nammo: " + (weapon.shots && "...") + (weapon.cache ? " / " + weapon.cache : ""), 30, "right", "bottom");
+        this.renderText(board, "walkers: " + this.game.agents.numZombies + "\n< weapon: " + weapon.name + " >\nammo: " + (weapon.shots || "...") + (weapon.cache ? " / " + weapon.cache : ""), 30, "right", "bottom");
         if (this.statusTime) {
           context.font = "bold 36px sans-serif";
           context.globalAlpha = 0.6 * min(1, 4 * this.statusTime / this.maxStatusTime);
@@ -962,6 +962,7 @@
               continue;
             }
             if (info.distSquared < killRadiusSquared) {
+              hitCount++;
               agent.kill();
             } else if (info.distSquared < maimRadiusSquared) {
               agent.maim(floor(50 + 100 * (1 - info.distSquared / maimRadiusSquared)));
@@ -973,6 +974,7 @@
               }
             }
           }
+          game.stats.addShotInfo(hitCount);
           game.noise(0.5);
           read(pick("hahaha", "awesome, " + hitCount, "got " + hitCount, "haha, you blew up " + hitCount, "ha, got " + hitCount, "that'll teach them", "it's raining arms", "i love grenades"));
           this.animationTime--;

@@ -6,11 +6,12 @@ A little zombie game written in ~~JavaScript~~ CoffeeScript
 
 ## TODO
 
-* obstacles (buildings, etc.)
-* fix stats
+* more obstacles
 * what to do with edge of board (wrap? scroll?)
 * moar sprites
   * have soft thresholds for switching directional sprites (so no jitters)
+* better bestMoveFor ... don't give up so quick if strafing, just if
+ping-ponging
 * sounds
   * zombies
 * animations
@@ -22,7 +23,8 @@ A little zombie game written in ~~JavaScript~~ CoffeeScript
   * grenade bonus (hold mouse/space allows further distance, maybe aim?)
 * spawn weapons, bonuses
 * agent health
-* detect player->zombie collisions
+* detect player->anything collisions (e.g. right now can walk through
+buildings)
   * chance to knock over zombie if just grazed (not full on collision)
 * don't retrack on every tick, have some variation (some zombies more
   reactive than other). when not retracking, continue current action/path

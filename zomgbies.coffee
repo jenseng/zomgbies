@@ -102,9 +102,9 @@
     [sectorCoord(x - size / 2), sectorCoord(x + size / 2)]
 
   sum = (array) ->
-    sum = 0
-    sum += i for i in array
-    sum
+    cnt = 0
+    cnt += i for i in array
+    cnt
 
   register = (name, constructor) ->
     @types ?= {}
@@ -401,7 +401,7 @@
       @renderText board, """
           walkers: #{@game.agents.numZombies}
           < weapon: #{weapon.name} >
-          ammo: #{weapon.shots and "..."}#{if weapon.cache then " / " + weapon.cache else ""}
+          ammo: #{weapon.shots or "..."}#{if weapon.cache then " / " + weapon.cache else ""}
         """, 30, "right", "bottom"
       if @statusTime
         context.font = "bold 36px sans-serif"
@@ -742,6 +742,7 @@
           agent = info.agent
           continue unless agent.alive
           if info.distSquared < killRadiusSquared
+            hitCount++
             agent.kill()
           else if info.distSquared < maimRadiusSquared
             agent.maim floor(50 + 100 * (1 - info.distSquared / maimRadiusSquared))
@@ -750,6 +751,7 @@
               agent.stun floor(25 + 50 * (1 - info.distSquared / stunRadiusSquared))
             else
               agent.distract this, 60 + floor(60 * rand()), distractDiameter
+        game.stats.addShotInfo hitCount
         game.noise 0.5
         read pick("hahaha", "awesome, " + hitCount, "got " + hitCount, "haha, you blew up " + hitCount, "ha, got " + hitCount, "that'll teach them", "it's raining arms", "i love grenades")
         @animationTime--
