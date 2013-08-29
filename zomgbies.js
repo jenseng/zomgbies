@@ -6,7 +6,7 @@
     __extends = function(child, parent) { for (var key in parent) { if (__hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; };
 
   (function($) {
-    var $status, AGENT_HEIGHT, AgentList, Board, Colt, FarmHouse, Game, Grenade, Grenades, HALF_PI, MouseTarget, PI, Player, QUARTER_PI, SPRITE_HEIGHT, SPRITE_WIDTH, SQRT_2, Stats, Structure, Sword, TAU, Tracker, Weapon, Zombie, Zomgbie, abs, atan2, ceil, checkCollision, cos, factory, floor, gravity, hypotenuse, lastRead, makeObservation, max, min, normalizeDirection, pick, pixelsPerMeter, pow, rand, read, register, round, sectorCoord, sectorRange, sectorSize, sin, sqrt, sum, _ref, _ref1, _ref2;
+    var $status, AGENT_HEIGHT, Agent, AgentList, Board, Colt, FarmHouse, Game, Grenade, Grenades, HALF_PI, Item, MouseTarget, PI, Player, QUARTER_PI, SPRITE_HEIGHT, SPRITE_WIDTH, SQRT_2, Stats, Structure, Sword, TAU, TEN_DEGREES, Tracker, Weapon, Zombie, Zomgbie, abs, atan2, ceil, cos, factory, floor, gravity, hypotenuse, lastRead, makeObservation, max, min, normalizeDirection, pick, pixelsPerMeter, pow, rand, read, register, round, sectorSize, sin, sqrt, sum, _ref, _ref1, _ref2;
     sectorSize = 36;
     pixelsPerMeter = 36;
     gravity = 9.8 * pixelsPerMeter;
@@ -23,9 +23,10 @@
     max = Math.max;
     pow = Math.pow;
     PI = Math.PI;
+    TAU = PI * 2;
     HALF_PI = PI / 2;
     QUARTER_PI = PI / 4;
-    TAU = PI * 2;
+    TEN_DEGREES = PI / 18;
     SQRT_2 = sqrt(2);
     SPRITE_WIDTH = 36;
     SPRITE_HEIGHT = 72;
@@ -62,47 +63,6 @@
     };
     hypotenuse = function(a, b) {
       return sqrt(a * a + b * b);
-    };
-    checkCollision = function(otherX, otherY, otherSize, otherZ, otherHeight) {
-      var diffX, diffY, distSquared, distX, distY, minDist, minDistSquared;
-      diffY = this.y - otherY;
-      distY = abs(diffY);
-      minDist = (this.size + otherSize) / 2;
-      minDistSquared = minDist * minDist;
-      if (distY > minDist) {
-        return false;
-      }
-      diffX = this.x - otherX;
-      distX = abs(diffX);
-      if (distX > minDist) {
-        return false;
-      }
-      distSquared = distX * distX + distY * distY;
-      if (distSquared > minDistSquared) {
-        return false;
-      }
-      if (this.z !== otherZ && (this.z + this.height < otherZ || otherZ + otherHeight < this.z)) {
-        return false;
-      }
-      return {
-        direction: atan2(diffY, diffX),
-        distSquared: distSquared
-      };
-    };
-    sectorCoord = function(n) {
-      return floor(n / sectorSize);
-    };
-    sectorRange = function(x, size) {
-      if (x == null) {
-        x = this.x;
-      }
-      if (size == null) {
-        size = this.size;
-      }
-      if (x == null) {
-        return;
-      }
-      return [sectorCoord(x - size / 2), sectorCoord(x + size / 2)];
     };
     sum = function(array) {
       var cnt, i, _i, _len;
@@ -504,6 +464,87 @@
       return Stats;
 
     })();
+    Agent = (function() {
+      function Agent(game) {
+        this.game = game;
+        this.agents = game != null ? game.agents : void 0;
+        this.player = game != null ? game.player : void 0;
+      }
+
+      Agent.prototype.collisionMechanism = function() {
+        return 'rebound';
+      };
+
+      Agent.prototype.collisionTangent = function(collisionInfo) {
+        return normalizeDirection(HALF_PI + atan2(this.y - collisionInfo.y, this.x - collisionInfo.x));
+      };
+
+      Agent.prototype.checkCollision = function(otherX, otherY, otherSize, otherZ, otherHeight) {
+        var diffX, diffY, distSquared, distX, distY, minDist, minDistSquared;
+        diffY = this.y - otherY;
+        distY = abs(diffY);
+        minDist = (this.size + otherSize) / 2;
+        minDistSquared = minDist * minDist;
+        if (distY > minDist) {
+          return false;
+        }
+        diffX = this.x - otherX;
+        distX = abs(diffX);
+        if (distX > minDist) {
+          return false;
+        }
+        distSquared = distX * distX + distY * distY;
+        if (distSquared > minDistSquared) {
+          return false;
+        }
+        if (this.z !== otherZ && !this.structure && (this.z + this.height < otherZ || otherZ + otherHeight < this.z)) {
+          return false;
+        }
+        return {
+          direction: atan2(diffY, diffX),
+          distSquared: distSquared
+        };
+      };
+
+      Agent.prototype.sectorRange = function(x, size) {
+        if (x == null) {
+          x = this.x;
+        }
+        if (size == null) {
+          size = this.size;
+        }
+        if (x == null) {
+          return;
+        }
+        return [floor((x - size / 2) / sectorSize), floor((x + size / 2) / sectorSize)];
+      };
+
+      Agent.prototype.set = function(x, y, z, size, height) {
+        if (z == null) {
+          z = this.z;
+        }
+        if (size == null) {
+          size = this.size;
+        }
+        if (height == null) {
+          height = this.height;
+        }
+        if (!(this.x === x && this.y === y && this.z === z && this.size === size && this.height === height)) {
+          this.agents.set(this, x, y, z, size, height);
+        }
+      };
+
+      Agent.prototype.nextMove = function() {
+        return true;
+      };
+
+      Agent.prototype.render = function() {};
+
+      Agent.prototype.renderShadow = function() {};
+
+      return Agent;
+
+    })();
     AgentList = (function() {
       function AgentList(game) {
         this.game = game;
@@ -564,21 +605,24 @@
       };
 
       AgentList.prototype.bestMoveFor = function(agent, direction, distance) {
-        var collision, currDir, currDist, currMove, factor, i, j, _i, _j;
+        var adjacentStructure, collision, collisions, currDir, currDist, currMove, factor, i, j, multiplier, player, _i, _j, _len, _ref, _ref1, _ref2;
         factor = rand() > 0.5 ? 1 : -1;
-        for (i = _i = 0; _i < 4; i = ++_i) {
-          currDist = (4 - i) / 4 * distance;
-          for (j = _j = 0; _j < 7; j = ++_j) {
-            currDir = normalizeDirection(direction + factor * (j % 2 || -1) * round(j / 2 + 0.25) * QUARTER_PI);
-            if (currMove = this.validMoveFor(agent, currDir, currDist)) {
-              if (i || j) {
-                if (agent.deviations > 2) {
-                  agent.rest(floor(rand() * 20), true);
-                  break;
+        adjacentStructure = false;
+        player = this.game.player;
+        _ref = [1, 0.25];
+        for (_i = 0, _len = _ref.length; _i < _len; _i++) {
+          i = _ref[_i];
+          currDist = i * distance;
+          for (j = _j = 0; _j < 23; j = ++_j) {
+            multiplier = factor * (j % 2 || -1) * round(j / 2 + 0.25);
+            currDir = normalizeDirection(direction + multiplier * TEN_DEGREES);
+            currMove = this.validateMoveFor(agent, currDir, currDist);
+            collisions = currMove.collisions;
+            if (!collisions.length) {
+              if (j && abs(normalizeDirection(agent.direction - currDir)) > HALF_PI) {
+                if (agent !== player) {
+                  agent.rest(floor(rand() * 20 + 20), true);
                 }
-                agent.deviations++;
-              } else {
-                agent.deviations = 0;
               }
               return {
                 distance: currDist * currMove.factor,
@@ -586,7 +630,15 @@
                 x: currMove.x,
                 y: currMove.y
               };
+            } else if (j === 0 && ((_ref1 = collisions[0]) != null ? (_ref2 = _ref1.agent) != null ? _ref2.structure : void 0 : void 0)) {
+              adjacentStructure = true;
             }
+            if (adjacentStructure && j >= 16) {
+              break;
+            }
+          }
+          if (adjacentStructure) {
+            break;
           }
         }
         if (collision = this.closestCollision(agent)) {
@@ -649,53 +701,47 @@
         return collisions[0];
       };
 
-      AgentList.prototype.validMoveFor = function(agent, direction, distance) {
-        var collision, collisions, factor, other, x, y, _i, _len;
-        x = agent.x + distance * cos(direction);
-        y = agent.y + distance * sin(direction);
+      AgentList.prototype.validateMoveFor = function(agent, direction, distance) {
+        var collision, collisions, factor, other, x, xDiff, y, yDiff, _i, _len, _ref;
+        x = agent.x;
+        y = agent.y;
+        xDiff = distance * cos(direction);
+        yDiff = distance * sin(direction);
         factor = 1;
-        if (agent !== this.game.player) {
-          collisions = this.collisionsFor(agent, x, y);
-          if (collisions.length) {
-            for (_i = 0, _len = collisions.length; _i < _len; _i++) {
-              collision = collisions[_i];
-              other = collision.agent;
-              if (other.decayTime) {
-                factor = 0.2 * other.decayTime / other.maxDecayTime;
-              } else if (other.sleepTime) {
-                factor = 0.2;
-              } else {
-                return false;
-              }
-            }
+        collisions = [];
+        _ref = this.collisionsFor(agent, x + xDiff, y + yDiff);
+        for (_i = 0, _len = _ref.length; _i < _len; _i++) {
+          collision = _ref[_i];
+          other = collision.agent;
+          if (other.decayTime) {
+            factor = 0.6 + 0.4 * (1 - other.decayTime / other.maxDecayTime);
+          } else if (other.sleepTime) {
+            factor = 0.6;
+          } else if (other.object) {
+            factor = 0.8;
+          } else {
+            collisions.push(collision);
           }
         }
         return {
-          x: x,
-          y: y,
-          factor: factor
+          x: x + xDiff * factor,
+          y: y + yDiff * factor,
+          factor: factor,
+          collisions: collisions
         };
       };
 
-      AgentList.prototype.set = function(agent, x, y, z, size) {
+      AgentList.prototype.set = function(agent, x, y, z, size, height) {
         var rangeOld;
-        if (z == null) {
-          z = agent.z;
-        }
-        if (size == null) {
-          size = agent.size;
-        }
         if (x.toString() === 'NaN') {
           debugger;
-        }
-        if (agent.x === x && agent.y === y && agent.z === z && agent.size === size) {
-          return;
         }
         rangeOld = agent.sectorRange();
         agent.x = x;
         agent.y = y;
         agent.z = z;
         agent.size = size;
+        agent.height = height;
         if (rangeOld) {
           this.setSectors(agent, rangeOld, agent.sectorRange());
         } else {
@@ -737,6 +783,9 @@
         sectors = this.sectors;
         for (i = _i = _ref = range[0], _ref1 = range[1]; _ref <= _ref1 ? _i <= _ref1 : _i >= _ref1; i = _ref <= _ref1 ? ++_i : --_i) {
           sector = sectors[i];
+          if (sector == null) {
+            debugger;
+          }
           sector.splice(sector.indexOf(agent), 1);
           if (!sector.length) {
             delete sectors[i];
@@ -825,14 +874,91 @@
       return Weapon;
 
     })();
-    Grenade = (function() {
-      function Grenade(game) {
+    Item = (function(_super) {
+      __extends(Item, _super);
+
+      function Item() {
+        var _ref, _ref1;
+        Item.__super__.constructor.apply(this, arguments);
+        this.gravityPerTick = gravity / ((_ref = this.game) != null ? (_ref1 = _ref.config) != null ? _ref1.ticksPerSecond : void 0 : void 0);
+      }
+
+      Item.prototype.decel = 6;
+
+      Item.prototype.item = true;
+
+      Item.prototype.zRest = true;
+
+      Item.prototype.nextMove = function() {
+        var agents, collision, currMove, diff, direction, hit, other, speed, tan, zRest;
+        speed = this.speed;
+        zRest = this.zRest;
+        if (speed > 0 || !zRest) {
+          agents = this.agents;
+          direction = this.direction;
+          currMove = agents.validateMoveFor(this, direction, speed);
+          if (collision = currMove.collisions[0]) {
+            other = collision.agent;
+            tan = other.collisionTangent(currMove);
+            diff = normalizeDirection(tan - direction);
+            if (abs(diff) > QUARTER_PI) {
+              tan = normalizeDirection(tan + PI);
+              diff = normalizeDirection(diff + PI);
+            }
+            if (other.item) {
+              if (diff < 0) {
+                other.direction = tan + QUARTER_PI;
+              } else {
+                other.direction = tan - QUARTER_PI;
+              }
+              other.speed = speed * abs(sin(diff));
+              direction = tan;
+              speed *= abs(cos(diff));
+            } else {
+              if (other.structure) {
+                speed *= 0.8;
+              } else {
+                other.stun(10);
+                speed *= 0.2;
+              }
+              direction = normalizeDirection(direction + diff + diff);
+            }
+            this.direction = direction;
+          }
+          this.z += this.zSpeed;
+          if (this.z <= 0) {
+            if (!zRest) {
+              hit = this.sounds.hit;
+              hit.load();
+              hit.play();
+              zRest = true;
+              this.zSpeed = 0;
+            }
+            this.z = 0;
+            speed -= this.decel;
+            if (speed < 0) {
+              speed = 0;
+            }
+            this.speed = speed;
+          } else if (!zRest) {
+            this.zSpeed -= this.gravityPerTick;
+          }
+          this.set(this.x + speed * cos(direction), this.y + speed * sin(direction));
+        }
+        return true;
+      };
+
+      return Item;
+
+    })(Agent);
+    Grenade = (function(_super) {
+      __extends(Grenade, _super);
+
+      function Grenade() {
         this.explode = __bind(this.explode, this);
         var pin;
-        this.game = game;
-        this.player = game.player;
+        Grenade.__super__.constructor.apply(this, arguments);
         this.pulledPin = new Date().getTime();
-        this.gravityPerTick = gravity / game.config.ticksPerSecond;
         pin = this.sounds.pin;
         pin.load();
         pin.play();
@@ -861,11 +987,7 @@
 
       Grenade.prototype.size = 6;
 
-      Grenade.prototype.decel = 6;
-
-      Grenade.prototype.object = true;
-
-      Grenade.prototype.distance = 0;
+      Grenade.prototype.height = 6;
 
       Grenade.prototype.throwAt = function(target) {
         var dist, distX, distY, inertia, maxSpeed, optimalSpeed, optimalSpeedSide, player, relativeOptimalSpeed;
@@ -874,8 +996,9 @@
         }
         player = this.player;
         this.thrown = true;
+        this.zRest = false;
         this.set(player.x, player.y, 64);
-        this.game.agents.push(this);
+        this.agents.push(this);
         if (target) {
           target = target.projectedLocation(this.timeToExplode + this.pulledPin - new Date().getTime());
           distX = target.x - this.x;
@@ -900,8 +1023,6 @@
           read(pick("nice throw", "good arm", "good throw", "nice", "you're nolan ryan"));
         }
       };
-
-      Grenade.prototype.checkCollision = checkCollision;
 
       Grenade.prototype.animationTime = 240;
 
@@ -935,18 +1056,13 @@
         }
       };
 
-      Grenade.prototype.set = function(x, y, z, size) {
-        this.game.agents.set(this, x, y, z, size);
-      };
-
       Grenade.prototype.nextMove = function() {
-        var agent, casualties, distractDiameter, game, hit, hitCount, info, killRadiusSquared, maimRadiusSquared, player, stunRadiusSquared, _i, _len,
+        var agent, casualties, distractDiameter, game, hitCount, info, killRadiusSquared, maimRadiusSquared, player, stunRadiusSquared, _i, _len,
           _this = this;
         if (this.exploded) {
           this.nextMove = function() {
             return --_this.animationTime;
           };
-          this.set(this.x, this.y, this.z, 96);
           hitCount = 0;
           player = this.player;
           killRadiusSquared = this.killRadiusSquared;
@@ -976,26 +1092,14 @@
           }
           game.stats.addShotInfo(hitCount);
           game.noise(0.5);
-          read(pick("hahaha", "awesome, " + hitCount, "got " + hitCount, "haha, you blew up " + hitCount, "ha, got " + hitCount, "that'll teach them", "it's raining arms", "i love grenades"));
-          this.animationTime--;
-        } else if (this.speed > 0) {
-          this.z += this.zSpeed;
-          if (this.z <= 0) {
-            if (this.gravityPerTick) {
-              hit = this.sounds.hit;
-              hit.load();
-              hit.play();
-              this.gravityPerTick = 0;
-            }
-            this.z = 0;
-            this.speed -= this.decel;
-            if (this.speed < 0) {
-              this.speed = 0;
-            }
+          if (hitCount === 0) {
+            read(pick("waste", "total waste", "got nothin", "next time", "do you even aim bro?", "so close", "ooh", "d'oh", "almost", "not quite"));
           } else {
-            this.zSpeed -= this.gravityPerTick;
+            read(pick("hahaha", "awesome, " + hitCount, "got " + hitCount, "haha, you blew up " + hitCount, "ha, got " + hitCount, "that'll teach them", "it's raining arms", "i love grenades", "strong work", "so strong", "heart grenades so much"));
           }
-          this.set(this.x + this.speed * cos(this.direction), this.y + this.speed * sin(this.direction));
+          this.animationTime--;
+        } else {
+          Grenade.__super__.nextMove.apply(this, arguments);
         }
         return true;
       };
@@ -1074,11 +1178,9 @@
         return 500 - elapsed;
       };
 
-      Grenade.prototype.sectorRange = sectorRange;
-
       return Grenade;
 
-    })();
+    })(Item);
     Grenades = (function(_super) {
       __extends(Grenades, _super);
 
@@ -1237,18 +1339,23 @@
     Weapon.register('grenades', Grenades);
     Weapon.register('sword', Sword);
     Weapon.register('colt', Colt);
-    Tracker = (function() {
+    Tracker = (function(_super) {
+      __extends(Tracker, _super);
+
       function Tracker(game, target) {
         this.target = target;
-        this.game = game;
-        this.agents = game != null ? game.agents : void 0;
+        Tracker.__super__.constructor.apply(this, arguments);
       }
 
       Tracker.prototype.alive = true;
 
+      Tracker.prototype.health = 10;
+
       Tracker.prototype.trackable = true;
 
       Tracker.prototype.size = 24;
+
+      Tracker.prototype.height = 50;
 
       Tracker.prototype.pursuitWobble = 10;
 
@@ -1257,6 +1364,10 @@
       Tracker.prototype.maxDecayTime = 160;
 
       Tracker.prototype.deviations = 0;
+
+      Tracker.prototype.collisionMechanism = function(other) {
+        return 'avoid';
+      };
 
       Tracker.prototype.randomStart = function(board) {
         this.direction = normalizeDirection(rand() * TAU);
@@ -1269,6 +1380,7 @@
         width = board.width;
         height = board.height;
         startPos = rand() * 2 * (width + height);
+        startPos = rand() * width;
         if (startPos < width) {
           this.direction = HALF_PI;
           this.set(startPos, 0);
@@ -1330,8 +1442,6 @@
         return context.restore();
       };
 
-      Tracker.prototype.sectorRange = sectorRange;
-
       Tracker.prototype.bloodStain = function() {
         var canvas, circles, context, i, rad, size, x, y, _i;
         canvas = document.createElement('canvas');
@@ -1362,7 +1472,7 @@
         }
         this.checkProximity();
         if (this.sleepTime) {
-          --this.sleepTime || (this.blood = null);
+          --this.sleepTime || this.revive();
         } else if (this.manual && !this.restRequired) {
           this.manualMove();
         } else if (this.game.config.pursueTargets && this.targetVisible() && !this.restRequired) {
@@ -1405,8 +1515,6 @@
         }
         this.target = fakeTarget;
       };
-
-      Tracker.prototype.checkCollision = checkCollision;
 
       Tracker.prototype.checkProximity = function() {
         var correction, distX, distY, optimalDirection, projected, target, targetFrd, x, y, _ref3;
@@ -1532,21 +1640,24 @@
         }
       };
 
-      Tracker.prototype.set = function(x, y) {
-        this.agents.set(this, x, y);
-      };
-
       Tracker.prototype.kill = function() {
+        this.set(this.x, this.y, this.z, 32, 8);
         this.alive = false;
         this.decayTime = this.maxDecayTime;
       };
 
       Tracker.prototype.maim = function(time) {
+        this.set(this.x, this.y, this.z, 32, 8);
         this.totalSleepTime = this.sleepTime = floor(time);
       };
 
       Tracker.prototype.stun = function(time) {
         this.rest(time, true);
+      };
+
+      Tracker.prototype.revive = function() {
+        this.set(this.x, this.y, this.z, Tracker.prototype.size, Tracker.prototype.height);
+        return this.blood = null;
       };
 
       Tracker.prototype.projectedLocation = function(time) {
@@ -1564,7 +1675,7 @@
 
       return Tracker;
 
-    })();
+    })(Agent);
     Zombie = (function(_super) {
       __extends(Zombie, _super);
 
@@ -1669,6 +1780,14 @@
       Player.prototype.direction = 0;
 
       Player.prototype.sprite = 0;
+
+      Player.prototype.collisionMechanism = function(other) {
+        if (other.zombie) {
+          return 'attack';
+        } else {
+          return 'avoid';
+        }
+      };
 
       Player.prototype.targetVisible = function() {
         return true;
@@ -1795,36 +1914,23 @@
       return Player;
 
     })(Tracker);
-    Structure = (function() {
+    Structure = (function(_super) {
+      __extends(Structure, _super);
+
       Structure.register = register;
 
       Structure.factory = factory;
 
-      function Structure(game) {
-        var agents;
-        this.game = game;
-        window.game = this.game;
-        this.agents = agents = this.game.agents;
-        agents.addToSectors(this, this.sectorRange());
+      function Structure() {
+        Structure.__super__.constructor.apply(this, arguments);
+        this.agents.addToSectors(this, this.sectorRange());
       }
 
-      Structure.prototype.sectorRange = sectorRange;
-
-      Structure.prototype.nextMove = function() {
-        return true;
-      };
-
-      Structure.prototype.render = function() {};
-
-      Structure.prototype.renderShadow = function() {};
-
-      Structure.prototype.checkCollision = checkCollision;
-
-      Structure.prototype.distance = 0;
+      Structure.prototype.structure = true;
 
       return Structure;
 
-    })();
+    })(Agent);
     FarmHouse = (function(_super) {
       __extends(FarmHouse, _super);
 
@@ -1860,11 +1966,22 @@
         };
       };
 
+      FarmHouse.prototype.collisionTangent = function(other) {
+        var diffX, diffY;
+        diffX = this.x - other.x;
+        diffY = this.y - other.y;
+        if ((diffX < 0) ^ (diffY < 0)) {
+          return QUARTER_PI;
+        } else {
+          return -QUARTER_PI;
+        }
+      };
+
       FarmHouse.prototype.render = function(board) {
         var context;
         context = board.context;
         context.save();
-        context.globalAlpha = 0.8;
+        context.globalAlpha = 0.9;
         context.drawImage(this.image, this.x - this.size / 2, this.y / 2 - this.imageYOffset);
         context.restore();
       };

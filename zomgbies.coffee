@@ -18,9 +18,10 @@
   pow = Math.pow
 
   PI = Math.PI
+  TAU = PI * 2
   HALF_PI = PI / 2
   QUARTER_PI = PI / 4
-  TAU = PI * 2
+  TEN_DEGREES = PI / 18
   SQRT_2 = sqrt(2)
   SPRITE_WIDTH = 36
   SPRITE_HEIGHT = 72
@@ -75,31 +76,6 @@
 
   hypotenuse = (a, b) ->
     sqrt(a * a + b * b)
-
-  checkCollision = (otherX, otherY, otherSize, otherZ, otherHeight) ->
-    diffY = @y - otherY
-    distY = abs(diffY)
-    minDist = (@size + otherSize) / 2
-    minDistSquared = minDist * minDist
-    return false if distY > minDist
-
-    diffX = @x - otherX
-    distX = abs(diffX)
-    return false if distX > minDist
-
-    distSquared = distX * distX + distY * distY
-    return false if distSquared > minDistSquared
-
-    return false if @z isnt otherZ and (@z + @height < otherZ || otherZ + otherHeight < @z)
-
-    {direction: atan2(diffY, diffX), distSquared}
-
-  sectorCoord = (n) ->
-    floor(n / sectorSize)
-
-  sectorRange = (x = @x, size = @size) ->
-    return unless x?
-    [sectorCoord(x - size / 2), sectorCoord(x + size / 2)]
 
   sum = (array) ->
     cnt = 0
@@ -410,6 +386,52 @@
         @statusTime--
       context.restore()
 
+  class Agent
+    constructor: (game) ->
+      @game = game
+      @agents = game?.agents
+      @player = game?.player
+
+    collisionMechanism: ->
+      'rebound'
+
+    collisionTangent: (collisionInfo) ->
+      # note that we cheat a little, since the objects could overlap, so
+      # this generally won't be the real tangent (but close enough, esp
+      # when hitting a structure)
+      normalizeDirection(HALF_PI + atan2(@y - collisionInfo.y, @x - collisionInfo.x))
+
+    checkCollision: (otherX, otherY, otherSize, otherZ, otherHeight) ->
+      diffY = @y - otherY
+      distY = abs(diffY)
+      minDist = (@size + otherSize) / 2
+      minDistSquared = minDist * minDist
+      return false if distY > minDist
+
+      diffX = @x - otherX
+      distX = abs(diffX)
+      return false if distX > minDist
+
+      distSquared = distX * distX + distY * distY
+      return false if distSquared > minDistSquared
+
+      return false if @z isnt otherZ and not @structure and (@z + @height < otherZ || otherZ + otherHeight < @z)
+
+      {direction: atan2(diffY, diffX), distSquared}
+
+    sectorRange: (x = @x, size = @size) ->
+      return unless x?
+      [floor((x - size / 2) / sectorSize), floor((x + size / 2) / sectorSize)]
+
+    set: (x, y, z = @z, size = @size, height = @height) ->
+      unless @x is x and @y is y and @z is z and @size is size and @height is height
+        @agents.set this, x, y, z, size, height
+      return
+
+    nextMove: -> true
+    render: ->
+    renderShadow: ->
+
   class AgentList
     constructor: (@game) ->
       @sectors = {}
@@ -459,26 +481,32 @@
 
     bestMoveFor: (agent, direction, distance) ->
       factor = if rand() > 0.5 then 1 else -1 # so we alternate between left/right
-      # try 7 directions at 4 decreasing speeds, starting w/ desired vector
-      for i in [0...4]
-        currDist = (4 - i) / 4 * distance
-        for j in [0...7]
-          # 0 / 45 / -45 / 90 / - 90
-          currDir = normalizeDirection(direction + factor * (j % 2 or -1) * round(j / 2 + 0.25) * QUARTER_PI)
-          if currMove = @validMoveFor(agent, currDir, currDist)
-            if i or j
-              if agent.deviations > 2 # don't want to ping pong forever, take a breather
-                agent.rest floor(rand() * 20), true
-                break
-              agent.deviations++
-            else
-              agent.deviations = 0
+      # try lots of directions (-110:110 in steps of 10) at 2 speeds, starting w/ desired vector
+      adjacentStructure = false
+      player = @game.player
+      for i in [1, 0.25]
+        currDist = i * distance
+        for j in [0...23]
+          multiplier = factor * (j % 2 or -1) * round(j / 2 + 0.25)
+          currDir = normalizeDirection(direction + multiplier * TEN_DEGREES)
+          # 0 / 10 / -10 / 20 / -20 ...
+          currMove = @validateMoveFor(agent, currDir, currDist)
+          collisions = currMove.collisions
+          if not collisions.length
+            if j and abs(normalizeDirection(agent.direction - currDir)) > HALF_PI
+              # if we're deviating a lot, pause (since we don't want to keep ping ponging)
+              if agent isnt player
+                agent.rest floor(rand() * 20 + 20), true
             return {
               distance: currDist * currMove.factor
               direction: currDir
               x: currMove.x
               y: currMove.y
             }
+          else if j is 0 and collisions[0]?.agent?.structure
+            adjacentStructure = true
+          break if adjacentStructure and j >= 16 # 80 deg in either direction TODO: less if closer
+        break if adjacentStructure
 
       # then see if we already overlap (due to spawn/bug/whatever), and if so, flee nearest neighbor at 1/2 impulse (overlap be damned)
       if collision = @closestCollision(agent)
@@ -515,31 +543,33 @@
         collisions.sort @distanceSorter
       collisions[0]
 
-    validMoveFor: (agent, direction, distance) ->
-      x = agent.x + distance * cos(direction)
-      y = agent.y + distance * sin(direction)
+    validateMoveFor: (agent, direction, distance) ->
+      x = agent.x
+      y = agent.y
+      xDiff = distance * cos(direction)
+      yDiff = distance * sin(direction)
       factor = 1
-      if agent isnt @game.player
-        collisions = @collisionsFor(agent, x, y)
-        if collisions.length
-          for collision in collisions
-            other = collision.agent
-            if other.decayTime # can walk over bodies, but slowly
-              factor = 0.2 * other.decayTime / other.maxDecayTime
-            else if other.sleepTime
-              factor = 0.2
-            else # otherwise legit collision, turn around
-              return false
-      {x, y, factor}
+      collisions = []
+      for collision in @collisionsFor(agent, x + xDiff, y + yDiff)
+        other = collision.agent
+        if other.decayTime # can walk over bodies, but slowly
+          factor = 0.6 + 0.4 * (1 - other.decayTime / other.maxDecayTime)
+        else if other.sleepTime
+          factor = 0.6
+        else if other.object
+          factor = 0.8
+        else # otherwise legit collision
+          collisions.push collision
+      {x: x + xDiff * factor, y: y + yDiff * factor, factor, collisions}
 
-    set: (agent, x, y, z = agent.z, size = agent.size) ->
+    set: (agent, x, y, z, size, height) ->
       debugger if x.toString() is 'NaN'
-      return if agent.x is x and agent.y is y and agent.z is z and agent.size is size
       rangeOld = agent.sectorRange()
       agent.x = x
       agent.y = y
       agent.z = z
       agent.size = size
+      agent.height = height
       if rangeOld
         @setSectors agent, rangeOld, agent.sectorRange()
       else
@@ -573,6 +603,7 @@
       sectors = @sectors
       for i in [range[0]..range[1]]
         sector = sectors[i]
+        debugger unless sector?
         sector.splice sector.indexOf(agent), 1
         delete sectors[i] unless sector.length
       return
@@ -627,12 +658,75 @@
     fire: ->
     fired: ->
 
-  class Grenade
-    constructor: (game) ->
-      @game = game
-      @player = game.player
+  class Item extends Agent
+    constructor: ->
+      super
+      @gravityPerTick = gravity / @game?.config?.ticksPerSecond
+
+    decel: 6 # when it hits the ground after a throw
+    item: true
+    zRest: true
+
+    nextMove: ->
+      speed = @speed
+      zRest = @zRest
+      if speed > 0 or not zRest # thrown or rolling/sliding
+        agents = @agents
+        direction = @direction
+        # TODO: if speed > size, do line/arc intersection checks (like we
+        # do for bullets) so we know about inter-tick collisions. if speed
+        # < size, we don't really care since any collision would just be a
+        # light grazing
+        # TODO2: determine if we are on top of a target, in which case
+        # zRest becomes true and zSpeed is zero until we leave it (e.g.
+        # roll off)
+        currMove = agents.validateMoveFor(this, direction, speed)
+        if collision = currMove.collisions[0]
+          other = collision.agent
+          # luckily we only have one moving item at a time (so far).
+          # also, items are all assumed to be round with equal mass
+          tan = other.collisionTangent(currMove)
+          diff = normalizeDirection(tan - direction)
+          if abs(diff) > QUARTER_PI
+            tan = normalizeDirection(tan + PI)
+            diff = normalizeDirection(diff + PI)
+          if other.item
+            if diff < 0
+              other.direction = tan + QUARTER_PI
+            else
+              other.direction = tan - QUARTER_PI
+            other.speed = speed * abs(sin(diff))
+            direction = tan
+            speed *= abs(cos(diff))
+          else # agent or structure, so simple rebound off tangent
+            if other.structure # not perfectly elastic though
+              speed *= 0.8
+            else
+              other.stun 10
+              speed *= 0.2
+            direction = normalizeDirection(direction + diff + diff)
+          @direction = direction
+        @z += @zSpeed
+        if @z <= 0
+          if not zRest
+            hit = @sounds.hit
+            hit.load()
+            hit.play()
+            zRest = true
+            @zSpeed = 0
+          @z = 0
+          speed -= @decel
+          speed = 0 if speed < 0
+          @speed = speed
+        else if not zRest
+          @zSpeed -= @gravityPerTick
+        @set @x + speed * cos(direction), @y + speed * sin(direction)
+      true
+
+  class Grenade extends Item
+    constructor: ->
+      super
       @pulledPin = new Date().getTime()
-      @gravityPerTick = gravity / game.config.ticksPerSecond
       pin = @sounds.pin
       pin.load()
       pin.play()
@@ -650,17 +744,16 @@
     distractDiameter: 1000
     speed: 64
     size: 6
-    decel: 6 # when it hits the ground
-    object: true
-    distance: 0
+    height: 6
 
     throwAt: (target) ->
       return if @exploded
 
       player = @player
       @thrown = true
+      @zRest = false
       @set player.x, player.y, 64 # shoulder height
-      @game.agents.push this
+      @agents.push this
 
       if target
         target = target.projectedLocation(@timeToExplode + @pulledPin - new Date().getTime())
@@ -691,8 +784,6 @@
         read pick("nice throw", "good arm", "good throw", "nice", "you're nolan ryan")
       return
 
-    checkCollision: checkCollision
-
     animationTime: 240
     animationTimeExplosion: 15
 
@@ -722,14 +813,9 @@
         agent.distractTime = 1
       return
 
-    set: (x, y, z, size) ->
-      @game.agents.set this, x, y, z, size
-      return
-
     nextMove: ->
       if @exploded
         @nextMove = => --@animationTime
-        @set @x, @y, @z, 96
         hitCount = 0
         player = @player
         killRadiusSquared = @killRadiusSquared
@@ -753,22 +839,13 @@
               agent.distract this, 60 + floor(60 * rand()), distractDiameter
         game.stats.addShotInfo hitCount
         game.noise 0.5
-        read pick("hahaha", "awesome, " + hitCount, "got " + hitCount, "haha, you blew up " + hitCount, "ha, got " + hitCount, "that'll teach them", "it's raining arms", "i love grenades")
-        @animationTime--
-      else if @speed > 0
-        @z += @zSpeed
-        if @z <= 0
-          if @gravityPerTick
-            hit = @sounds.hit
-            hit.load()
-            hit.play()
-            @gravityPerTick = 0
-          @z = 0
-          @speed -= @decel
-          @speed = 0 if @speed < 0
+        if hitCount is 0
+          read pick("waste", "total waste", "got nothin", "next time", "do you even aim bro?", "so close", "ooh", "d'oh", "almost", "not quite")
         else
-          @zSpeed -= @gravityPerTick
-        @set @x + @speed * cos(@direction), @y + @speed * sin(@direction)
+          read pick("hahaha", "awesome, #{hitCount}", "got #{hitCount}", "haha, you blew up #{hitCount}", "ha, got #{hitCount}", "that'll teach them", "it's raining arms", "i love grenades", "strong work", "so strong", "heart grenades so much")
+        @animationTime--
+      else
+        super
       true
 
     renderShadow: (board) ->
@@ -835,8 +912,6 @@
       elapsed = new Date().getTime() - @pulledPin
       500 - elapsed
 
-    sectorRange: sectorRange
-
   class Grenades extends Weapon
     shots: '∞'
 
@@ -885,6 +960,7 @@
       if closest
         direction = closest.optimalDirection
         direction += PI * (rand() / 45 - 1 / 90) # off by up to 3 degrees
+        # TODO off by z as well, possibly missing or just maiming a zombie
         for agent in byDistance when agent.alive and agent isnt player
           # will the shot hit this zombie?
           hitMargin = abs(atan2(agent.size / 4, sqrt(agent.distSquaredFrd)))
@@ -938,18 +1014,22 @@
   Weapon.register 'sword', Sword
   Weapon.register 'colt', Colt
 
-  class Tracker
+  class Tracker extends Agent
     constructor: (game, @target) ->
-      @game = game
-      @agents = game?.agents
+      super
 
     alive: true
+    health: 10 # TODO
     trackable: true
     size: 24
+    height: 50
     pursuitWobble: 10
     patrolWobble: 30
     maxDecayTime: 160
     deviations: 0
+
+    collisionMechanism: (other) ->
+      'avoid'
 
     randomStart: (board) ->
       @direction = normalizeDirection(rand() * TAU)
@@ -961,6 +1041,7 @@
       width = board.width
       height = board.height
       startPos = rand() * 2 * (width + height)
+      startPos = rand() * width
       if startPos < width
         @direction = HALF_PI
         @set startPos, 0
@@ -1012,8 +1093,6 @@
         context.drawImage @blood, x - 36, y - 36
       context.restore()
 
-    sectorRange: sectorRange
-
     bloodStain: ->
       canvas = document.createElement('canvas')
       context = canvas.getContext('2d')
@@ -1040,7 +1119,7 @@
       @checkProximity()
 
       if @sleepTime
-        --@sleepTime or @blood = null
+        --@sleepTime or @revive()
       else if @manual and !@restRequired
         @manualMove()
       else if @game.config.pursueTargets and @targetVisible() and not @restRequired
@@ -1072,8 +1151,6 @@
       @targetFrd ?= @target
       @target = fakeTarget
       return
-
-    checkCollision: checkCollision
 
     checkProximity: ->
       target = @target
@@ -1173,22 +1250,24 @@
         @set frd.x, frd.y
       return
 
-    set: (x, y) ->
-      @agents.set this, x, y
-      return
-
     kill: ->
+      @set @x, @y, @z, 32, 8
       @alive = false
       @decayTime = @maxDecayTime
       return
 
     maim: (time) ->
+      @set @x, @y, @z, 32, 8
       @totalSleepTime = @sleepTime = floor(time)
       return
 
     stun: (time) ->
       @rest time, true
       return
+
+    revive: ->
+      @set @x, @y, @z, Tracker::size, Tracker::height
+      @blood = null
 
     projectedLocation: (time) ->
       ticks = time / @game.tickTime
@@ -1272,6 +1351,12 @@
     speed: 12
     direction: 0
     sprite: 0
+
+    collisionMechanism: (other) ->
+      if other.zombie
+        'attack'
+      else
+        'avoid'
 
     targetVisible: -> true
 
@@ -1375,21 +1460,15 @@
       context.restore()
       return
 
-  class Structure
+  class Structure extends Agent
     @register = register
     @factory = factory
 
-    constructor: (@game) ->
-      window.game = @game
-      @agents = agents = @game.agents
-      agents.addToSectors this, @sectorRange()
+    constructor: ->
+      super
+      @agents.addToSectors this, @sectorRange()
 
-    sectorRange: sectorRange
-    nextMove: -> true
-    render: ->
-    renderShadow: ->
-    checkCollision: checkCollision
-    distance: 0
+    structure: true
 
   class FarmHouse extends Structure
     #x: 1124
@@ -1413,10 +1492,18 @@
       return false if manhattanishDist > @size/2 # distance from center of house to corner
       {direction: atan2(diffY, diffX), distSquared: distX * distX + distY * distY}
 
+    collisionTangent: (other) ->
+      diffX = @x - other.x
+      diffY = @y - other.y
+      if (diffX < 0) ^ (diffY < 0)
+        QUARTER_PI
+      else
+        -QUARTER_PI
+
     render: (board) ->
       context = board.context
       context.save()
-      context.globalAlpha = 0.8
+      context.globalAlpha = 0.9
       context.drawImage @image, @x - @size/2, @y/2 - @imageYOffset
       context.restore()
       return

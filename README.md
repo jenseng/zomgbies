@@ -36,3 +36,12 @@ buildings)
 * better HUD
 * high scores
 * ai mode (watch through binoculars)
+* achievements
+  * panda time (find panda suit + flamethrower) 
+  * walk through walls
+  * speedy gonzales
+  * beat him while he's down (kill a maimed zombie)
+  * i'm walkin' here! (knock over 10 zombies in a row)
+  * playing favorites (same zombie 5 times in a row)
+  * combo / streaks / total
+  * sharpshooter (distance)
