@@ -6,7 +6,7 @@
     __extends = function(child, parent) { for (var key in parent) { if (__hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; };
 
   (function($) {
-    var $status, AGENT_HEIGHT, Agent, AgentList, Board, Colt, FarmHouse, Game, Grenade, Grenades, HALF_PI, Item, MouseTarget, PI, Player, QUARTER_PI, SPRITE_HEIGHT, SPRITE_WIDTH, SQRT_2, Stats, Structure, Sword, TAU, TEN_DEGREES, Tracker, Weapon, Zombie, Zomgbie, abs, atan2, ceil, cos, factory, floor, gravity, hypotenuse, lastRead, makeObservation, max, min, normalizeDirection, pick, pixelsPerMeter, pow, rand, read, register, round, sectorSize, sin, sqrt, sum, _ref, _ref1, _ref2;
+    var $status, AGENT_HEIGHT, Agent, AgentList, Board, Colt, FarmHouse, Game, Grenade, Grenades, HALF_PI, Item, MotorHome, MouseTarget, PI, Player, QUARTER_PI, SPRITE_HEIGHT, SPRITE_WIDTH, SQRT_2, Stats, Structure, Sword, TAU, TEN_DEGREES, Tracker, Weapon, Zombie, Zomgbie, abs, atan2, ceil, cos, factory, floor, gravity, hypotenuse, lastRead, makeObservation, max, min, normalizeDirection, pick, pixelsPerMeter, pow, rand, read, register, round, sectorSize, sin, sqrt, sum, _ref, _ref1, _ref2;
     sectorSize = 36;
     pixelsPerMeter = 36;
     gravity = 9.8 * pixelsPerMeter;
@@ -109,7 +109,7 @@
         config = this.config = $.extend({}, this.config, options, true);
         this.board = new Board(this, $canvas);
         this.agents = new AgentList(this);
-        this.mouseTarget = new MouseTarget(this.board);
+        this.mouseTarget = new MouseTarget(this);
         _ref1 = (_ref = config.structures) != null ? _ref : {};
         for (name in _ref1) {
           args = _ref1[name];
@@ -150,17 +150,17 @@
         $doc = $(document);
         this.$canvas.on('mousemove', function(e) {
           var _ref;
-          _this.mouseTarget.set(e.clientX + 20, e.clientY * 2 + 160);
+          _this.mouseTarget.set(e.clientX, e.clientY * 2);
           return (_ref = _this.player) != null ? _ref.mouseMove() : void 0;
         });
         this.$canvas.on('mousedown', function(e) {
           var _ref;
-          _this.mouseTarget.set(e.clientX + 20, e.clientY * 2 + 160);
+          _this.mouseTarget.set(e.clientX, e.clientY * 2);
           return (_ref = _this.player) != null ? _ref.mouseDown() : void 0;
         });
         this.$canvas.on('mouseup', function(e) {
           var _ref;
-          _this.mouseTarget.set(e.clientX + 20, e.clientY * 2 + 160);
+          _this.mouseTarget.set(e.clientX, e.clientY * 2);
           return (_ref = _this.player) != null ? _ref.mouseUp() : void 0;
         });
         $doc.on('keydown', this.keyDown);
@@ -211,7 +211,7 @@
         });
         this.time('render', function() {
           if (this.player) {
-            return this.board.render(this.agents, this.player.weapons, this.stats);
+            return this.board.render(this.mouseTarget, this.agents, this.player.weapons, this.stats);
           } else {
             return this.board.render(this.agents, this.mouseTarget);
           }
@@ -258,6 +258,7 @@
 
       Game.prototype.gameOver = function() {
         var message, messages;
+        this.config.patrolCorrection = 1;
         messages = this.config.messages.gameOver;
         message = pick.apply(this, messages);
         read("game over. " + message);
@@ -529,6 +530,9 @@
         if (height == null) {
           height = this.height;
         }
+        x = round(x);
+        y = round(y);
+        z = round(z);
         if (!(this.x === x && this.y === y && this.z === z && this.size === size && this.height === height)) {
           this.agents.set(this, x, y, z, size, height);
         }
@@ -733,9 +737,6 @@
 
       AgentList.prototype.set = function(agent, x, y, z, size, height) {
         var rangeOld;
-        if (x.toString() === 'NaN') {
-          debugger;
-        }
         rangeOld = agent.sectorRange();
         agent.x = x;
         agent.y = y;
@@ -783,9 +784,6 @@
         sectors = this.sectors;
         for (i = _i = _ref = range[0], _ref1 = range[1]; _ref <= _ref1 ? _i <= _ref1 : _i >= _ref1; i = _ref <= _ref1 ? ++_i : --_i) {
           sector = sectors[i];
-          if (sector == null) {
-            debugger;
-          }
           sector.splice(sector.indexOf(agent), 1);
           if (!sector.length) {
             delete sectors[i];
@@ -821,6 +819,7 @@
           agent = _ref[_i];
           agent.renderShadow(board);
         }
+        this.game.mouseTarget.renderShadow(board);
         _ref1 = this.byStacking;
         for (_j = 0, _len1 = _ref1.length; _j < _len1; _j++) {
           agent = _ref1[_j];
@@ -859,7 +858,7 @@
         _ref = this.game.agents.byDistance;
         for (_i = 0, _len = _ref.length; _i < _len; _i++) {
           agent = _ref[_i];
-          if (agent.alive && agent.zombie) {
+          if (agent.alive && agent.zombie && !agent.sleepTime) {
             return agent;
           }
         }
@@ -990,26 +989,32 @@
       Grenade.prototype.height = 6;
 
       Grenade.prototype.throwAt = function(target) {
-        var dist, distX, distY, inertia, maxSpeed, optimalSpeed, optimalSpeedSide, player, relativeOptimalSpeed;
+        var direction, dist, distX, distY, inertia, maxSpeed, ogTarget, optimalSpeed, optimalSpeedSide, player, relativeOptimalSpeed, startOffset, x, y;
         if (this.exploded) {
           return;
         }
         player = this.player;
+        x = player.x, y = player.y;
+        startOffset = player.size / 2;
         this.thrown = true;
         this.zRest = false;
-        this.set(player.x, player.y, 64);
         this.agents.push(this);
         if (target) {
+          ogTarget = target;
           target = target.projectedLocation(this.timeToExplode + this.pulledPin - new Date().getTime());
-          distX = target.x - this.x;
-          distY = target.y - this.y;
-          dist = hypotenuse(distX, distY);
+          distX = target.x - x;
+          distY = target.y - y;
+          dist = max(hypotenuse(distX, distY) - startOffset, 1);
           optimalSpeed = sqrt(dist * this.gravityPerTick) * 0.85;
-          this.direction = atan2(distY, distX);
+          direction = atan2(distY, distX);
         } else {
           optimalSpeed = this.speed;
-          this.direction = normalizeDirection(rand() * TAU);
+          direction = normalizeDirection(rand() * TAU);
         }
+        x += startOffset * cos(direction);
+        y += startOffset * sin(direction);
+        this.set(x, y, player.height * 0.75);
+        this.direction = direction;
         optimalSpeedSide = optimalSpeed / SQRT_2;
         inertia = player.currentSpeed * cos(player.direction - this.direction);
         relativeOptimalSpeed = hypotenuse(optimalSpeedSide, optimalSpeedSide - inertia);
@@ -1380,7 +1385,6 @@
         width = board.width;
         height = board.height;
         startPos = rand() * 2 * (width + height);
-        startPos = rand() * width;
         if (startPos < width) {
           this.direction = HALF_PI;
           this.set(startPos, 0);
@@ -1517,19 +1521,13 @@
       };
 
       Tracker.prototype.checkProximity = function() {
-        var correction, distX, distY, optimalDirection, projected, target, targetFrd, x, y, _ref3;
+        var correction, distX, distY, optimalDirection, projected, target, targetFrd, x, y;
         target = this.target;
         if (target != null ? target.trackable : void 0) {
           x = this.x;
           y = this.y;
           if (this.distractTime) {
-            targetFrd = (function() {
-              if ((_ref3 = this.targetFrd) != null) {
-                return _ref3;
-              } else {
-                debugger;
-              }
-            }).call(this);
+            targetFrd = this.targetFrd;
             if (--this.distractTime) {
               distX = targetFrd.x - x;
               distY = targetFrd.y - y;
@@ -1695,12 +1693,18 @@
 
     })(Tracker);
     MouseTarget = (function() {
-      function MouseTarget(board) {
-        this.board = board;
+      function MouseTarget(game) {
+        var board;
+        this.game = game;
+        board = game.board;
         this.x = board.width / 2;
         this.y = board.height / 2;
-        this.mask = document.createElement('canvas');
-        this.maskContext = this.mask.getContext('2d');
+        if (game.config.mode === 'observe') {
+          this.mask = document.createElement('canvas');
+          this.maskContext = this.mask.getContext('2d');
+          this.render = this.renderBinoculars;
+          this.renderShadow = function() {};
+        }
       }
 
       MouseTarget.prototype.trackable = true;
@@ -1714,7 +1718,31 @@
         this.y = y;
       };
 
-      MouseTarget.prototype.render = function(board) {
+      MouseTarget.prototype.render = function() {};
+
+      MouseTarget.prototype.renderShadow = function(board) {
+        var context, player;
+        player = this.player != null ? this.player : this.player = this.game.player;
+        if (!(player && player.alive && !player.manual && player.currentSpeed)) {
+          return;
+        }
+        context = board.context;
+        context.save();
+        context.scale(1, 0.5);
+        context.globalAlpha = 0.75;
+        context.beginPath();
+        context.translate(this.x, this.y);
+        context.rotate(QUARTER_PI);
+        context.arc(0, 0, 10, 0, TAU);
+        context.strokeStyle = '#ccb';
+        context.stroke();
+        context.fillStyle = '#ccb';
+        context.fillRect(-20, -1, 40, 3);
+        context.fillRect(-1, -20, 3, 40);
+        return context.restore();
+      };
+
+      MouseTarget.prototype.renderBinoculars = function(board) {
         var canvas, context, eyeOffset, gradient, height, mask, maskContext, radius, width, x, y;
         context = board.context;
         canvas = board.canvas;
@@ -1803,7 +1831,7 @@
         var zombie;
         this.kill();
         this.decayTime = 0;
-        zombie = new Zombie(this.game);
+        zombie = new Zombie(this.game, this);
         zombie.sprite = 0;
         zombie.direction = 0;
         zombie.set(this.x, this.y + 1);
@@ -1934,9 +1962,9 @@
     FarmHouse = (function(_super) {
       __extends(FarmHouse, _super);
 
-      FarmHouse.prototype.x = 892;
+      FarmHouse.prototype.x = 1144;
 
-      FarmHouse.prototype.y = 780;
+      FarmHouse.prototype.y = 1408;
 
       FarmHouse.prototype.size = 434;
 
@@ -1989,7 +2017,72 @@
       return FarmHouse;
 
     })(Structure);
+    MotorHome = (function(_super) {
+      __extends(MotorHome, _super);
+
+      MotorHome.prototype.x = 620;
+
+      MotorHome.prototype.y = 520;
+
+      MotorHome.prototype.imageXOffset = 123;
+
+      MotorHome.prototype.imageYOffset = 146;
+
+      MotorHome.prototype.lengthComponent = 190;
+
+      MotorHome.prototype.widthComponent = 55;
+
+      MotorHome.prototype.size = 245;
+
+      function MotorHome(game) {
+        var image;
+        this.game = game;
+        MotorHome.__super__.constructor.apply(this, arguments);
+        this.image = image = new Image();
+        image.src = "images/motorhome.png";
+      }
+
+      MotorHome.prototype.checkCollision = function(otherX, otherY, otherSize) {
+        var length, width, x, y;
+        x = otherX - this.x;
+        y = otherY - this.y;
+        length = this.lengthComponent + otherSize / 2;
+        width = this.widthComponent + otherSize / 2;
+        if (x + y > width || x + y < -width || x - y > length || x - y < -length) {
+          return false;
+        }
+        return {
+          direction: atan2(-y, -x),
+          distSquared: x * x + y * y
+        };
+      };
+
+      MotorHome.prototype.collisionTangent = function(other) {
+        var width, x, y;
+        x = other.x - this.x;
+        y = other.y - this.y;
+        width = this.widthComponent;
+        if (x + y >= width || x + y <= -width) {
+          return -QUARTER_PI;
+        } else {
+          return QUARTER_PI;
+        }
+      };
+
+      MotorHome.prototype.render = function(board) {
+        var context;
+        context = board.context;
+        context.save();
+        context.globalAlpha = 0.9;
+        context.drawImage(this.image, this.x - this.imageXOffset, this.y / 2 - this.imageYOffset);
+        context.restore();
+      };
+
+      return MotorHome;
+
+    })(Structure);
     Structure.register('farmhouse', FarmHouse);
+    Structure.register('motorhome', MotorHome);
     return window.Zomgbie = Zomgbie;
   })($);
 

@@ -105,7 +105,7 @@
 
       @board = new Board(this, $canvas)
       @agents = new AgentList(this)
-      @mouseTarget = new MouseTarget(@board)
+      @mouseTarget = new MouseTarget(this)
       for name, args of config.structures ? {}
         @agents.push Structure.factory(name, this, args...)
 
@@ -137,15 +137,15 @@
       $doc = $(document)
 
       @$canvas.on 'mousemove', (e) =>
-        @mouseTarget.set e.clientX + 20, e.clientY * 2 + 160
+        @mouseTarget.set e.clientX, e.clientY * 2
         @player?.mouseMove()
 
       @$canvas.on 'mousedown', (e) =>
-        @mouseTarget.set e.clientX + 20, e.clientY * 2 + 160
+        @mouseTarget.set e.clientX, e.clientY * 2
         @player?.mouseDown()
 
       @$canvas.on 'mouseup', (e) =>
-        @mouseTarget.set e.clientX + 20, e.clientY * 2 + 160
+        @mouseTarget.set e.clientX, e.clientY * 2
         @player?.mouseUp()
 
       $doc.on 'keydown', @keyDown
@@ -184,7 +184,7 @@
 
       @time 'render', ->
         if @player
-          @board.render @agents, @player.weapons, @stats
+          @board.render @mouseTarget, @agents, @player.weapons, @stats
         else
           @board.render @agents, @mouseTarget
       if @pursuitThreshold > @config.pursuitThreshold
@@ -220,6 +220,7 @@
       return
 
     gameOver: ->
+      @config.patrolCorrection = 1
       messages = @config.messages.gameOver
       message = pick.apply(this, messages)
       read "game over. " + message
@@ -397,8 +398,7 @@
 
     collisionTangent: (collisionInfo) ->
       # note that we cheat a little, since the objects could overlap, so
-      # this generally won't be the real tangent (but close enough, esp
-      # when hitting a structure)
+      # this generally won't be the real tangent (unless it's a structure)
       normalizeDirection(HALF_PI + atan2(@y - collisionInfo.y, @x - collisionInfo.x))
 
     checkCollision: (otherX, otherY, otherSize, otherZ, otherHeight) ->
@@ -424,6 +424,9 @@
       [floor((x - size / 2) / sectorSize), floor((x + size / 2) / sectorSize)]
 
     set: (x, y, z = @z, size = @size, height = @height) ->
+      x = round(x)
+      y = round(y)
+      z = round(z)
       unless @x is x and @y is y and @z is z and @size is size and @height is height
         @agents.set this, x, y, z, size, height
       return
@@ -563,7 +566,6 @@
       {x: x + xDiff * factor, y: y + yDiff * factor, factor, collisions}
 
     set: (agent, x, y, z, size, height) ->
-      debugger if x.toString() is 'NaN'
       rangeOld = agent.sectorRange()
       agent.x = x
       agent.y = y
@@ -603,7 +605,6 @@
       sectors = @sectors
       for i in [range[0]..range[1]]
         sector = sectors[i]
-        debugger unless sector?
         sector.splice sector.indexOf(agent), 1
         delete sectors[i] unless sector.length
       return
@@ -628,6 +629,7 @@
     render: (board) ->
       for agent in @byStacking
         agent.renderShadow board
+      @game.mouseTarget.renderShadow board
       for agent in @byStacking
         agent.render board
       return
@@ -650,7 +652,7 @@
       return
 
     closest: ->
-      for agent in @game.agents.byDistance when agent.alive and agent.zombie
+      for agent in @game.agents.byDistance when agent.alive and agent.zombie and not agent.sleepTime
         return agent
       return
 
@@ -750,21 +752,27 @@
       return if @exploded
 
       player = @player
+      {x, y} = player
+      startOffset = player.size / 2 # throwing from edge of player
       @thrown = true
       @zRest = false
-      @set player.x, player.y, 64 # shoulder height
       @agents.push this
 
       if target
+        ogTarget = target
         target = target.projectedLocation(@timeToExplode + @pulledPin - new Date().getTime())
-        distX = target.x - @x
-        distY = target.y - @y
-        dist = hypotenuse(distX, distY)
+        distX = target.x - x
+        distY = target.y - y
+        dist = max(hypotenuse(distX, distY) - startOffset, 1)
         optimalSpeed = sqrt(dist * @gravityPerTick) * 0.85 # fudge factor due to drop and roll
-        @direction = atan2(distY, distX)
+        direction = atan2(distY, distX)
       else # no target, just throw it far
         optimalSpeed = @speed
-        @direction = normalizeDirection(rand() * TAU)
+        direction = normalizeDirection(rand() * TAU)
+      x += startOffset * cos(direction)
+      y += startOffset * sin(direction)
+      @set x, y, player.height * 0.75
+      @direction = direction
 
       # get the v/h speed (same, since 45 deg is optimal)
       optimalSpeedSide = optimalSpeed / SQRT_2
@@ -1041,7 +1049,6 @@
       width = board.width
       height = board.height
       startPos = rand() * 2 * (width + height)
-      startPos = rand() * width
       if startPos < width
         @direction = HALF_PI
         @set startPos, 0
@@ -1158,7 +1165,7 @@
         x = @x
         y = @y
         if @distractTime
-          targetFrd = @targetFrd ? debugger
+          targetFrd = @targetFrd
           if --@distractTime
             distX = targetFrd.x - x
             distY = targetFrd.y - y
@@ -1289,12 +1296,16 @@
     zombie: true
 
   class MouseTarget
-    constructor: (board) ->
-      @board = board
+    constructor: (game) ->
+      @game = game
+      board = game.board
       @x = board.width / 2
       @y = board.height / 2
-      @mask = document.createElement('canvas')
-      @maskContext = @mask.getContext('2d')
+      if game.config.mode is 'observe'
+        @mask = document.createElement('canvas')
+        @maskContext = @mask.getContext('2d')
+        @render = @renderBinoculars
+        @renderShadow = ->
 
     trackable: true
     size: 0
@@ -1303,7 +1314,27 @@
 
     set: (@x, @y) ->
 
-    render: (board) ->
+    render: ->
+
+    renderShadow: (board) ->
+      player = @player ?= @game.player
+      return unless player and player.alive and not player.manual and player.currentSpeed
+      context = board.context
+      context.save()
+      context.scale 1, 0.5
+      context.globalAlpha = 0.75
+      context.beginPath()
+      context.translate @x, @y
+      context.rotate QUARTER_PI
+      context.arc 0, 0, 10, 0, TAU
+      context.strokeStyle = '#ccb'
+      context.stroke()
+      context.fillStyle = '#ccb'
+      context.fillRect -20, -1, 40, 3
+      context.fillRect -1, -20, 3, 40
+      context.restore()
+
+    renderBinoculars: (board) ->
       context = board.context
       canvas = board.canvas
       width = canvas.width
@@ -1369,7 +1400,7 @@
     infect: ->
       @kill()
       @decayTime = 0
-      zombie = new Zombie(@game)
+      zombie = new Zombie(@game, this)
       zombie.sprite = 0
       zombie.direction = 0
       zombie.set(@x, @y + 1) # js sort isn't stable, so we want the zombie consistently in the front during rest
@@ -1471,10 +1502,8 @@
     structure: true
 
   class FarmHouse extends Structure
-    #x: 1124
-    #y: 1408
-    x: 892
-    y: 780
+    x: 1144
+    y: 1408
     size: 434
     imageYOffset: 352
 
@@ -1508,7 +1537,50 @@
       context.restore()
       return
 
+  class MotorHome extends Structure
+    x: 620
+    y: 520
+    imageXOffset: 123
+    imageYOffset: 146
+    lengthComponent: 190
+    widthComponent: 55
+    size: 245
+
+    constructor: (@game) ->
+      super
+      @image = image = new Image()
+      image.src = "images/motorhome.png"
+
+    checkCollision: (otherX, otherY, otherSize) ->
+      x = otherX - @x
+      y = otherY - @y
+      length = @lengthComponent + otherSize / 2
+      width = @widthComponent + otherSize / 2
+      return false if x + y > width or
+                      x + y < -width or
+                      x - y > length or
+                      x - y < -length
+      {direction: atan2(-y, -x), distSquared: x*x + y*y}
+
+    collisionTangent: (other) ->
+      x = other.x - @x
+      y = other.y - @y
+      width = @widthComponent
+      if x + y >= width or x + y <= -width
+        -QUARTER_PI
+      else
+        QUARTER_PI
+
+    render: (board) ->
+      context = board.context
+      context.save()
+      context.globalAlpha = 0.9
+      context.drawImage @image, @x - @imageXOffset, @y/2 - @imageYOffset
+      context.restore()
+      return
+
   Structure.register 'farmhouse', FarmHouse
+  Structure.register 'motorhome', MotorHome
 
   window.Zomgbie = Zomgbie
 )($)
