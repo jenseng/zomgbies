@@ -238,6 +238,7 @@
 
   class Board
     constructor: (@game, $canvas) ->
+      @config = @game.config
       @canvas = $canvas[0]
       @context = @canvas.getContext('2d')
       @resize()
@@ -249,8 +250,19 @@
       @height = @canvas.height * 2
       return
 
+    renderDebug: ->
+      if slopes = @game.agents.stackingSlopes
+        context = @context
+        context.strokeStyle = '#88f'
+        for [x1, y1, x2, y2] in slopes
+          context.beginPath()
+          context.moveTo(x1, y1 / 2)
+          context.lineTo(x2, y2 / 2)
+          context.stroke()
+
     render: (args...) ->
       @context.clearRect 0, 0, @width, @height
+      @renderDebug() if @config.debug
       for arg in args
         if arg.render
           arg.render(this)
@@ -261,6 +273,7 @@
 
   class Stats
     constructor: (@game) ->
+      @config = @game.config
 
     kills: 0
     killStreak: 0
@@ -369,7 +382,7 @@
       context.globalAlpha = 0.6
       context.fillStyle = if player.alive then '#800' else '#333'
       context.strokeStyle = '#000'
-      @renderDebug board if @game.config.debug
+      @renderDebug board if @config.debug
       @renderText board, """
           kills: #{@kills}
           streak: #{@killStreak} (#{@maxKillStreak})
@@ -390,6 +403,7 @@
   class Agent
     constructor: (game) ->
       @game = game
+      @config = game?.config
       @agents = game?.agents
       @player = game?.player
 
@@ -457,7 +471,7 @@
       a.distSquared - b.distSquared
 
     stackingSorter: (a, b) ->
-      a.y - b.y
+      a.stacking - b.stacking
 
     sort: ->
       byDistance = @byDistance
@@ -572,6 +586,7 @@
       agent.z = z
       agent.size = size
       agent.height = height
+      agent.stacking = @stackingFor(x, y)
       if rangeOld
         @setSectors agent, rangeOld, agent.sectorRange()
       else
@@ -633,6 +648,80 @@
       for agent in @byStacking
         agent.render board
       return
+
+    # about stacking slopes:
+    #
+    # structures can be large and irregular, so we need to adjust stacking
+    # of things near them. consider a structure like so:
+    #
+    #                /\
+    #               /  \
+    #              /    \
+    #             /     /
+    #            /     /
+    #           /     /b
+    #          /  x  /
+    #        a/     /
+    #        /     /
+    #       /     /
+    #       \    /
+    #        \  /
+    #         \/
+    #
+    # a is an agent with a slightly higher y than the structure (origin is
+    # top left), making it technically in front, even though a human would
+    # consider it behind it (the inverse is true for b). so that means "a"
+    # would render on top of the structure, which is not great. so we
+    # define stacking slopes to adjust agents' stacking
+    #
+    # first you find the point with the lowest y coordinate of any front
+    # face (p1). then get the lines along the face of the shape. if either
+    # end has a higher y than p1, extend a (sloped) line until you reach
+    # that value. these are your stacking slopes.
+    #
+    #         a1
+    #         ^
+    #         |       /\
+    #         |      /  \
+    # ________|___x1/____\p1
+    # \       |    /     /
+    #  \      |  b/     /
+    #   \     |  /     /b
+    #    \    | /  x  /
+    #     \   a/     /
+    #      \  /     /
+    #       \/     /
+    #      p2\    /
+    #         \  /
+    #          \/
+    #
+    # also be sure to set the structure's stacking to the y value of p1.
+    # when rendering, the structure and any points behind the stacking
+    # lines will have their stacking adjusted according to the height of
+    # the line at that point. for example, "a" will be drawn in its usual
+    # spot, but as if it had the stacking of a1. the structure's stacking
+    # will also decrease, so that agents like b will render in front.
+    addStackingSlopes: (newSlopes) ->
+      slopes = @stackingSlopes ? []
+      yMin = min(y1, y2, minY ? y1) for [x1, y1, x2, y2] in newSlopes
+      for slope in newSlopes
+        [x1, y1, x2, y2] = slope
+        slope.push (x2 - x1) / (y2 - y1)
+        slope.push min(y1, y2) - yMin
+      @stackingSlopes = slopes.concat(newSlopes)
+      return
+
+    stackingFor: (x, y) ->
+      origY = y
+      for [x1, y1, x2, y2, slope, yExtra] in @stackingSlopes
+        continue if x < x1 or x > x2
+        continue if y > y1 and y > y2
+        yDiff = (x - x1) * slope
+        continue if y > y1 + yDiff
+        yDiff = y1 - y2 - yDiff if slope < 1
+        y -= yDiff - yExtra
+      y
+
 
   class Weapon
     constructor: (@game, @player) ->
@@ -1090,8 +1179,12 @@
       context.scale 1, 0.5
       context.globalAlpha = 0.05
       context.beginPath()
-      context.arc x, y, 10, 0, TAU
-      context.fillStyle = '#000'
+      if y isnt @stacking and @config.debug
+        context.arc x, y, 100, 0, TAU
+        context.fillStyle = '#00f'
+      else
+        context.arc x, y, 10, 0, TAU
+        context.fillStyle = '#000'
       context.fill()
       if time = (@sleepTime or @decayTime)
         @blood ?= @bloodStain()
@@ -1497,7 +1590,10 @@
 
     constructor: ->
       super
+      @stacking ?= @y
       @agents.addToSectors this, @sectorRange()
+      if slopes = @stackingSlopes
+        @agents.addStackingSlopes slopes
 
     structure: true
 
@@ -1538,13 +1634,18 @@
       return
 
   class MotorHome extends Structure
-    x: 620
-    y: 520
+    x: x = 620
+    y: y = 520
     imageXOffset: 123
     imageYOffset: 146
-    lengthComponent: 190
-    widthComponent: 55
+    lengthComponent: (l = 95) * 2
+    widthComponent: (w = 27.5) * 2
     size: 245
+    stacking: y - l + w
+    stackingSlopes: [
+      [x - 3 * l + w, y - l + w, x - l + w, y + l + w]
+      [x - l + w, y + l + w, x + l + w, y - l + w]
+    ]
 
     constructor: (@game) ->
       super

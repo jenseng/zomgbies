@@ -7,8 +7,6 @@ A little zombie game written in ~~JavaScript~~ CoffeeScript
 ## TODO
 
 * more obstacles
-* implement stacking slope for structures (solve motorhome/fence
-stacking issues)
 * make board size != canvas side, scroll on edge
 * moar sprites
   * have soft thresholds for switching directional sprites (so no jitters)

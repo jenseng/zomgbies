@@ -285,6 +285,7 @@
       function Board(game, $canvas) {
         this.game = game;
         this.resize = __bind(this.resize, this);
+        this.config = this.game.config;
         this.canvas = $canvas[0];
         this.context = this.canvas.getContext('2d');
         this.resize();
@@ -297,10 +298,30 @@
         this.height = this.canvas.height * 2;
       };
 
+      Board.prototype.renderDebug = function() {
+        var context, slopes, x1, x2, y1, y2, _i, _len, _ref, _results;
+        if (slopes = this.game.agents.stackingSlopes) {
+          context = this.context;
+          context.strokeStyle = '#88f';
+          _results = [];
+          for (_i = 0, _len = slopes.length; _i < _len; _i++) {
+            _ref = slopes[_i], x1 = _ref[0], y1 = _ref[1], x2 = _ref[2], y2 = _ref[3];
+            context.beginPath();
+            context.moveTo(x1, y1 / 2);
+            context.lineTo(x2, y2 / 2);
+            _results.push(context.stroke());
+          }
+          return _results;
+        }
+      };
+
       Board.prototype.render = function() {
         var arg, arg2, args, _i, _j, _len, _len1;
         args = 1 <= arguments.length ? __slice.call(arguments, 0) : [];
         this.context.clearRect(0, 0, this.width, this.height);
+        if (this.config.debug) {
+          this.renderDebug();
+        }
         for (_i = 0, _len = args.length; _i < _len; _i++) {
           arg = args[_i];
           if (arg.render) {
@@ -320,6 +341,7 @@
     Stats = (function() {
       function Stats(game) {
         this.game = game;
+        this.config = this.game.config;
       }
 
       Stats.prototype.kills = 0;
@@ -448,7 +470,7 @@
         context.globalAlpha = 0.6;
         context.fillStyle = player.alive ? '#800' : '#333';
         context.strokeStyle = '#000';
-        if (this.game.config.debug) {
+        if (this.config.debug) {
           this.renderDebug(board);
         }
         this.renderText(board, "kills: " + this.kills + "\nstreak: " + this.killStreak + " (" + this.maxKillStreak + ")\ncombo: " + this.maxCombo, 30, "left", "bottom");
@@ -468,6 +490,7 @@
     Agent = (function() {
       function Agent(game) {
         this.game = game;
+        this.config = game != null ? game.config : void 0;
         this.agents = game != null ? game.agents : void 0;
         this.player = game != null ? game.player : void 0;
       }
@@ -577,7 +600,7 @@
       };
 
       AgentList.prototype.stackingSorter = function(a, b) {
-        return a.y - b.y;
+        return a.stacking - b.stacking;
       };
 
       AgentList.prototype.sort = function() {
@@ -743,6 +766,7 @@
         agent.z = z;
         agent.size = size;
         agent.height = height;
+        agent.stacking = this.stackingFor(x, y);
         if (rangeOld) {
           this.setSectors(agent, rangeOld, agent.sectorRange());
         } else {
@@ -825,6 +849,46 @@
           agent = _ref1[_j];
           agent.render(board);
         }
+      };
+
+      AgentList.prototype.addStackingSlopes = function(newSlopes) {
+        var slope, slopes, x1, x2, y1, y2, yMin, _i, _j, _len, _len1, _ref, _ref1;
+        slopes = (_ref = this.stackingSlopes) != null ? _ref : [];
+        for (_i = 0, _len = newSlopes.length; _i < _len; _i++) {
+          _ref1 = newSlopes[_i], x1 = _ref1[0], y1 = _ref1[1], x2 = _ref1[2], y2 = _ref1[3];
+          yMin = min(y1, y2, typeof minY !== "undefined" && minY !== null ? minY : y1);
+        }
+        for (_j = 0, _len1 = newSlopes.length; _j < _len1; _j++) {
+          slope = newSlopes[_j];
+          x1 = slope[0], y1 = slope[1], x2 = slope[2], y2 = slope[3];
+          slope.push((x2 - x1) / (y2 - y1));
+          slope.push(min(y1, y2) - yMin);
+        }
+        this.stackingSlopes = slopes.concat(newSlopes);
+      };
+
+      AgentList.prototype.stackingFor = function(x, y) {
+        var origY, slope, x1, x2, y1, y2, yDiff, yExtra, _i, _len, _ref, _ref1;
+        origY = y;
+        _ref = this.stackingSlopes;
+        for (_i = 0, _len = _ref.length; _i < _len; _i++) {
+          _ref1 = _ref[_i], x1 = _ref1[0], y1 = _ref1[1], x2 = _ref1[2], y2 = _ref1[3], slope = _ref1[4], yExtra = _ref1[5];
+          if (x < x1 || x > x2) {
+            continue;
+          }
+          if (y > y1 && y > y2) {
+            continue;
+          }
+          yDiff = (x - x1) * slope;
+          if (y > y1 + yDiff) {
+            continue;
+          }
+          if (slope < 1) {
+            yDiff = y1 - y2 - yDiff;
+          }
+          y -= yDiff - yExtra;
+        }
+        return y;
       };
 
       return AgentList;
@@ -1432,8 +1496,13 @@
         context.scale(1, 0.5);
         context.globalAlpha = 0.05;
         context.beginPath();
-        context.arc(x, y, 10, 0, TAU);
-        context.fillStyle = '#000';
+        if (y !== this.stacking && this.config.debug) {
+          context.arc(x, y, 100, 0, TAU);
+          context.fillStyle = '#00f';
+        } else {
+          context.arc(x, y, 10, 0, TAU);
+          context.fillStyle = '#000';
+        }
         context.fill();
         if (time = this.sleepTime || this.decayTime) {
           if (this.blood == null) {
@@ -1950,8 +2019,15 @@
       Structure.factory = factory;
 
       function Structure() {
+        var slopes;
         Structure.__super__.constructor.apply(this, arguments);
+        if (this.stacking == null) {
+          this.stacking = this.y;
+        }
         this.agents.addToSectors(this, this.sectorRange());
+        if (slopes = this.stackingSlopes) {
+          this.agents.addStackingSlopes(slopes);
+        }
       }
 
       Structure.prototype.structure = true;
@@ -2018,21 +2094,27 @@
 
     })(Structure);
     MotorHome = (function(_super) {
+      var l, w, x, y;
+
       __extends(MotorHome, _super);
 
-      MotorHome.prototype.x = 620;
+      MotorHome.prototype.x = x = 620;
 
-      MotorHome.prototype.y = 520;
+      MotorHome.prototype.y = y = 520;
 
       MotorHome.prototype.imageXOffset = 123;
 
       MotorHome.prototype.imageYOffset = 146;
 
-      MotorHome.prototype.lengthComponent = 190;
+      MotorHome.prototype.lengthComponent = (l = 95) * 2;
 
-      MotorHome.prototype.widthComponent = 55;
+      MotorHome.prototype.widthComponent = (w = 27.5) * 2;
 
       MotorHome.prototype.size = 245;
+
+      MotorHome.prototype.stacking = y - l + w;
+
+      MotorHome.prototype.stackingSlopes = [[x - 3 * l + w, y - l + w, x - l + w, y + l + w], [x - l + w, y + l + w, x + l + w, y - l + w]];
 
       function MotorHome(game) {
         var image;
@@ -2043,7 +2125,7 @@
       }
 
       MotorHome.prototype.checkCollision = function(otherX, otherY, otherSize) {
-        var length, width, x, y;
+        var length, width;
         x = otherX - this.x;
         y = otherY - this.y;
         length = this.lengthComponent + otherSize / 2;
@@ -2058,7 +2140,7 @@
       };
 
       MotorHome.prototype.collisionTangent = function(other) {
-        var width, x, y;
+        var width;
         x = other.x - this.x;
         y = other.y - this.y;
         width = this.widthComponent;
