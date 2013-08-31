@@ -34,7 +34,7 @@
       Zomgbie(
         $('canvas'), {
           resize: true,
-          //debug: true,
+          debug: true,
           //mode: 'observe',
           weapons: ['colt', 'grenades'],
           messages: {
@@ -48,10 +48,12 @@
             ]
           },
           sprites: images,
-          structures: {
-            farmhouse: [],
-            motorhome: []
-          }
+          structures: [
+            ["farmhouse", 1144, 1408],
+            ["motorhome", 620, 520],
+            ["tower", 1650, 1100],
+            ["fence", 350, 1000, 1]
+          ]
         }
       );
     </script>

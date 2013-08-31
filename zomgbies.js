@@ -6,7 +6,7 @@
     __extends = function(child, parent) { for (var key in parent) { if (__hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; };
 
   (function($) {
-    var $status, AGENT_HEIGHT, Agent, AgentList, Board, Colt, FarmHouse, Game, Grenade, Grenades, HALF_PI, Item, MotorHome, MouseTarget, PI, Player, QUARTER_PI, SPRITE_HEIGHT, SPRITE_WIDTH, SQRT_2, Stats, Structure, Sword, TAU, TEN_DEGREES, Tracker, Weapon, Zombie, Zomgbie, abs, atan2, ceil, cos, factory, floor, gravity, hypotenuse, lastRead, makeObservation, max, min, normalizeDirection, pick, pixelsPerMeter, pow, rand, read, register, round, sectorSize, sin, sqrt, sum, _ref, _ref1, _ref2;
+    var $status, AGENT_HEIGHT, Agent, AgentList, Board, Colt, FarmHouse, Fence, Game, Grenade, Grenades, HALF_PI, Item, MotorHome, MouseTarget, PI, Player, QUARTER_PI, RotatedRectangleStructure, RotatedSquareStructure, SPRITE_HEIGHT, SPRITE_WIDTH, SQRT_2, Stats, Structure, Sword, TAU, TEN_DEGREES, Tower, Tracker, Weapon, Zombie, Zomgbie, abs, atan2, ceil, cos, factory, floor, gravity, hypotenuse, lastRead, makeObservation, max, min, normalizeDirection, pick, pixelsPerMeter, pow, rand, read, register, round, sectorSize, sin, sqrt, sum, _ref, _ref1, _ref2, _ref3, _ref4, _ref5, _ref6, _ref7;
     sectorSize = 36;
     pixelsPerMeter = 36;
     gravity = 9.8 * pixelsPerMeter;
@@ -101,7 +101,7 @@
     };
     Game = (function() {
       function Game($canvas, options) {
-        var args, config, name, _ref, _ref1;
+        var args, config, name, _i, _len, _ref, _ref1, _ref2;
         this.$canvas = $canvas;
         this.run = __bind(this.run, this);
         this.keyUp = __bind(this.keyUp, this);
@@ -111,10 +111,11 @@
         this.agents = new AgentList(this);
         this.mouseTarget = new MouseTarget(this);
         _ref1 = (_ref = config.structures) != null ? _ref : {};
-        for (name in _ref1) {
-          args = _ref1[name];
+        for (_i = 0, _len = _ref1.length; _i < _len; _i++) {
+          _ref2 = _ref1[_i], name = _ref2[0], args = 2 <= _ref2.length ? __slice.call(_ref2, 1) : [];
           this.agents.push(Structure.factory.apply(Structure, [name, this].concat(__slice.call(args))));
         }
+        this.agents.restackStructures();
         if (config.mode === 'observe') {
           config.patrolCorrection = 1;
           config.pursueTargets = false;
@@ -135,7 +136,7 @@
 
       Game.prototype.config = {
         ticksPerSecond: 30,
-        maxZombies: 100,
+        maxZombies: 0,
         maxSpawnsPerTick: 50,
         pursuitThreshold: 200,
         patrolCorrection: 3,
@@ -851,7 +852,7 @@
         }
       };
 
-      AgentList.prototype.addStackingSlopes = function(newSlopes) {
+      AgentList.prototype.addStackingSlopes = function(structure, newSlopes) {
         var slope, slopes, x1, x2, y1, y2, yMin, _i, _j, _len, _len1, _ref, _ref1;
         slopes = (_ref = this.stackingSlopes) != null ? _ref : [];
         for (_i = 0, _len = newSlopes.length; _i < _len; _i++) {
@@ -863,16 +864,33 @@
           x1 = slope[0], y1 = slope[1], x2 = slope[2], y2 = slope[3];
           slope.push((x2 - x1) / (y2 - y1));
           slope.push(min(y1, y2) - yMin);
+          slope.push(structure);
         }
         this.stackingSlopes = slopes.concat(newSlopes);
       };
 
-      AgentList.prototype.stackingFor = function(x, y) {
-        var origY, slope, x1, x2, y1, y2, yDiff, yExtra, _i, _len, _ref, _ref1;
+      AgentList.prototype.restackStructures = function() {
+        var structure, _i, _len, _ref, _results;
+        _ref = this.byStacking;
+        _results = [];
+        for (_i = 0, _len = _ref.length; _i < _len; _i++) {
+          structure = _ref[_i];
+          if (structure.structure) {
+            _results.push(structure.stacking = this.stackingFor(structure.x, structure.stacking, structure));
+          }
+        }
+        return _results;
+      };
+
+      AgentList.prototype.stackingFor = function(x, y, agent) {
+        var origY, sAgent, slope, x1, x2, y1, y2, yDiff, yExtra, _i, _len, _ref, _ref1;
         origY = y;
         _ref = this.stackingSlopes;
         for (_i = 0, _len = _ref.length; _i < _len; _i++) {
-          _ref1 = _ref[_i], x1 = _ref1[0], y1 = _ref1[1], x2 = _ref1[2], y2 = _ref1[3], slope = _ref1[4], yExtra = _ref1[5];
+          _ref1 = _ref[_i], x1 = _ref1[0], y1 = _ref1[1], x2 = _ref1[2], y2 = _ref1[3], slope = _ref1[4], yExtra = _ref1[5], sAgent = _ref1[6];
+          if (agent && agent === sAgent) {
+            continue;
+          }
           if (x < x1 || x > x2) {
             continue;
           }
@@ -884,7 +902,7 @@
             continue;
           }
           if (slope < 1) {
-            yDiff = y1 - y2 - yDiff;
+            yDiff = y1 - y2 + yDiff;
           }
           y -= yDiff - yExtra;
         }
@@ -1006,6 +1024,7 @@
           } else if (!zRest) {
             this.zSpeed -= this.gravityPerTick;
           }
+          this.zRest = zRest;
           this.set(this.x + speed * cos(direction), this.y + speed * sin(direction));
         }
         return true;
@@ -2018,15 +2037,26 @@
 
       Structure.factory = factory;
 
-      function Structure() {
-        var slopes;
+      Structure.prototype.imageXOffset = 0;
+
+      Structure.prototype.imageYOffset = 0;
+
+      function Structure(game, x, y) {
+        var image, slopes;
+        this.game = game;
+        this.x = x;
+        this.y = y;
         Structure.__super__.constructor.apply(this, arguments);
+        if (this.imageSrc) {
+          this.image = image = new Image();
+          image.src = this.imageSrc;
+        }
         if (this.stacking == null) {
           this.stacking = this.y;
         }
         this.agents.addToSectors(this, this.sectorRange());
         if (slopes = this.stackingSlopes) {
-          this.agents.addStackingSlopes(slopes);
+          this.agents.addStackingSlopes(this, slopes);
         }
       }
 
@@ -2035,26 +2065,15 @@
       return Structure;
 
     })(Agent);
-    FarmHouse = (function(_super) {
-      __extends(FarmHouse, _super);
+    RotatedSquareStructure = (function(_super) {
+      __extends(RotatedSquareStructure, _super);
 
-      FarmHouse.prototype.x = 1144;
-
-      FarmHouse.prototype.y = 1408;
-
-      FarmHouse.prototype.size = 434;
-
-      FarmHouse.prototype.imageYOffset = 352;
-
-      function FarmHouse(game) {
-        var image;
-        this.game = game;
-        FarmHouse.__super__.constructor.apply(this, arguments);
-        this.image = image = new Image();
-        image.src = "images/farmhouse.png";
+      function RotatedSquareStructure() {
+        _ref3 = RotatedSquareStructure.__super__.constructor.apply(this, arguments);
+        return _ref3;
       }
 
-      FarmHouse.prototype.checkCollision = function(otherX, otherY, otherSize) {
+      RotatedSquareStructure.prototype.checkCollision = function(otherX, otherY, otherSize) {
         var diffX, diffY, distX, distY, manhattanishDist;
         diffX = this.x - otherX;
         diffY = this.y - otherY;
@@ -2070,7 +2089,7 @@
         };
       };
 
-      FarmHouse.prototype.collisionTangent = function(other) {
+      RotatedSquareStructure.prototype.collisionTangent = function(other) {
         var diffX, diffY;
         diffX = this.x - other.x;
         diffY = this.y - other.y;
@@ -2081,57 +2100,72 @@
         }
       };
 
-      FarmHouse.prototype.render = function(board) {
+      RotatedSquareStructure.prototype.render = function(board) {
         var context;
         context = board.context;
         context.save();
         context.globalAlpha = 0.9;
-        context.drawImage(this.image, this.x - this.size / 2, this.y / 2 - this.imageYOffset);
+        context.drawImage(this.image, this.x - this.size / 2 - this.imageXOffset, this.y / 2 - this.imageYOffset);
         context.restore();
       };
 
-      return FarmHouse;
+      return RotatedSquareStructure;
 
     })(Structure);
-    MotorHome = (function(_super) {
-      var l, w, x, y;
+    FarmHouse = (function(_super) {
+      __extends(FarmHouse, _super);
 
-      __extends(MotorHome, _super);
-
-      MotorHome.prototype.x = x = 620;
-
-      MotorHome.prototype.y = y = 520;
-
-      MotorHome.prototype.imageXOffset = 123;
-
-      MotorHome.prototype.imageYOffset = 146;
-
-      MotorHome.prototype.lengthComponent = (l = 95) * 2;
-
-      MotorHome.prototype.widthComponent = (w = 27.5) * 2;
-
-      MotorHome.prototype.size = 245;
-
-      MotorHome.prototype.stacking = y - l + w;
-
-      MotorHome.prototype.stackingSlopes = [[x - 3 * l + w, y - l + w, x - l + w, y + l + w], [x - l + w, y + l + w, x + l + w, y - l + w]];
-
-      function MotorHome(game) {
-        var image;
-        this.game = game;
-        MotorHome.__super__.constructor.apply(this, arguments);
-        this.image = image = new Image();
-        image.src = "images/motorhome.png";
+      function FarmHouse() {
+        _ref4 = FarmHouse.__super__.constructor.apply(this, arguments);
+        return _ref4;
       }
 
-      MotorHome.prototype.checkCollision = function(otherX, otherY, otherSize) {
-        var length, width;
+      FarmHouse.prototype.size = 434;
+
+      FarmHouse.prototype.imageYOffset = 352;
+
+      FarmHouse.prototype.imageSrc = "images/farmhouse.png";
+
+      return FarmHouse;
+
+    })(RotatedSquareStructure);
+    RotatedRectangleStructure = (function(_super) {
+      __extends(RotatedRectangleStructure, _super);
+
+      function RotatedRectangleStructure(game, x, y, slope) {
+        if (slope) {
+          this.slope = slope;
+        }
+        this.setStacking(x, y);
+        RotatedRectangleStructure.__super__.constructor.apply(this, arguments);
+      }
+
+      RotatedRectangleStructure.prototype.setStacking = function(x, y) {
+        var l, w;
+        l = this.lengthComponent / 2;
+        w = this.widthComponent / 2;
+        this.stacking = y - l + w;
+        if (this.slope > 0) {
+          return this.stackingSlopes = [[x - l - w, y - l + w, x + l - w, y + l + w], [x + l - w, y + l + w, x + 3 * l - w, y - l + w]];
+        } else {
+          return this.stackingSlopes = [[x - 3 * l + w, y - l + w, x - l + w, y + l + w], [x - l + w, y + l + w, x + l + w, y - l + w]];
+        }
+      };
+
+      RotatedRectangleStructure.prototype.checkCollision = function(otherX, otherY, otherSize) {
+        var length, width, x, y;
         x = otherX - this.x;
         y = otherY - this.y;
         length = this.lengthComponent + otherSize / 2;
         width = this.widthComponent + otherSize / 2;
-        if (x + y > width || x + y < -width || x - y > length || x - y < -length) {
-          return false;
+        if (this.slope > 0) {
+          if (x - y > width || x - y < -width || x + y > length || x + y < -length) {
+            return false;
+          }
+        } else {
+          if (x + y > width || x + y < -width || x - y > length || x - y < -length) {
+            return false;
+          }
         }
         return {
           direction: atan2(-y, -x),
@@ -2139,8 +2173,8 @@
         };
       };
 
-      MotorHome.prototype.collisionTangent = function(other) {
-        var width;
+      RotatedRectangleStructure.prototype.collisionTangent = function(other) {
+        var width, x, y;
         x = other.x - this.x;
         y = other.y - this.y;
         width = this.widthComponent;
@@ -2151,7 +2185,7 @@
         }
       };
 
-      MotorHome.prototype.render = function(board) {
+      RotatedRectangleStructure.prototype.render = function(board) {
         var context;
         context = board.context;
         context.save();
@@ -2160,11 +2194,80 @@
         context.restore();
       };
 
-      return MotorHome;
+      return RotatedRectangleStructure;
 
     })(Structure);
+    MotorHome = (function(_super) {
+      __extends(MotorHome, _super);
+
+      function MotorHome() {
+        _ref5 = MotorHome.__super__.constructor.apply(this, arguments);
+        return _ref5;
+      }
+
+      MotorHome.prototype.imageXOffset = 123;
+
+      MotorHome.prototype.imageYOffset = 146;
+
+      MotorHome.prototype.imageSrc = "images/motorhome.png";
+
+      MotorHome.prototype.lengthComponent = 190;
+
+      MotorHome.prototype.widthComponent = 55;
+
+      MotorHome.prototype.size = 245;
+
+      MotorHome.prototype.slope = -1;
+
+      return MotorHome;
+
+    })(RotatedRectangleStructure);
+    Tower = (function(_super) {
+      __extends(Tower, _super);
+
+      function Tower() {
+        _ref6 = Tower.__super__.constructor.apply(this, arguments);
+        return _ref6;
+      }
+
+      Tower.prototype.size = 74;
+
+      Tower.prototype.imageXOffset = 36;
+
+      Tower.prototype.imageYOffset = 223;
+
+      Tower.prototype.imageSrc = "images/tower.png";
+
+      return Tower;
+
+    })(RotatedSquareStructure);
+    Fence = (function(_super) {
+      __extends(Fence, _super);
+
+      function Fence() {
+        _ref7 = Fence.__super__.constructor.apply(this, arguments);
+        return _ref7;
+      }
+
+      Fence.prototype.size = 293;
+
+      Fence.prototype.imageXOffset = 149;
+
+      Fence.prototype.imageYOffset = 138;
+
+      Fence.prototype.lengthComponent = 293;
+
+      Fence.prototype.widthComponent = 10;
+
+      Fence.prototype.imageSrc = "images/fence-se.png";
+
+      return Fence;
+
+    })(RotatedRectangleStructure);
     Structure.register('farmhouse', FarmHouse);
     Structure.register('motorhome', MotorHome);
+    Structure.register('tower', Tower);
+    Structure.register('fence', Fence);
     return window.Zomgbie = Zomgbie;
   })($);
 

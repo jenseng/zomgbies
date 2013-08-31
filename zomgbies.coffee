@@ -106,8 +106,9 @@
       @board = new Board(this, $canvas)
       @agents = new AgentList(this)
       @mouseTarget = new MouseTarget(this)
-      for name, args of config.structures ? {}
+      for [name, args...] in config.structures ? {}
         @agents.push Structure.factory(name, this, args...)
+      @agents.restackStructures()
 
       if config.mode is 'observe'
         config.patrolCorrection = 1
@@ -125,7 +126,7 @@
 
     config:
       ticksPerSecond: 30
-      maxZombies: 100
+      maxZombies: 0
       maxSpawnsPerTick: 50
       pursuitThreshold: 200
       patrolCorrection: 3
@@ -701,24 +702,30 @@
     # the line at that point. for example, "a" will be drawn in its usual
     # spot, but as if it had the stacking of a1. the structure's stacking
     # will also decrease, so that agents like b will render in front.
-    addStackingSlopes: (newSlopes) ->
+    addStackingSlopes: (structure, newSlopes) ->
       slopes = @stackingSlopes ? []
       yMin = min(y1, y2, minY ? y1) for [x1, y1, x2, y2] in newSlopes
       for slope in newSlopes
         [x1, y1, x2, y2] = slope
         slope.push (x2 - x1) / (y2 - y1)
         slope.push min(y1, y2) - yMin
+        slope.push structure
       @stackingSlopes = slopes.concat(newSlopes)
       return
 
-    stackingFor: (x, y) ->
+    restackStructures: ->
+      for structure in @byStacking when structure.structure
+        structure.stacking = @stackingFor(structure.x, structure.stacking, structure)
+
+    stackingFor: (x, y, agent) ->
       origY = y
-      for [x1, y1, x2, y2, slope, yExtra] in @stackingSlopes
+      for [x1, y1, x2, y2, slope, yExtra, sAgent] in @stackingSlopes
+        continue if agent and agent is sAgent
         continue if x < x1 or x > x2
         continue if y > y1 and y > y2
         yDiff = (x - x1) * slope
         continue if y > y1 + yDiff
-        yDiff = y1 - y2 - yDiff if slope < 1
+        yDiff = y1 - y2 + yDiff if slope < 1
         y -= yDiff - yExtra
       y
 
@@ -811,6 +818,7 @@
           @speed = speed
         else if not zRest
           @zSpeed -= @gravityPerTick
+        @zRest = zRest
         @set @x + speed * cos(direction), @y + speed * sin(direction)
       true
 
@@ -1588,33 +1596,28 @@
     @register = register
     @factory = factory
 
-    constructor: ->
+    imageXOffset: 0
+    imageYOffset: 0
+    constructor: (@game, @x, @y) ->
       super
+      if @imageSrc
+        @image = image = new Image()
+        image.src = @imageSrc
       @stacking ?= @y
       @agents.addToSectors this, @sectorRange()
       if slopes = @stackingSlopes
-        @agents.addStackingSlopes slopes
+        @agents.addStackingSlopes this, slopes
 
     structure: true
 
-  class FarmHouse extends Structure
-    x: 1144
-    y: 1408
-    size: 434
-    imageYOffset: 352
-
-    constructor: (@game) ->
-      super
-      @image = image = new Image()
-      image.src = "images/farmhouse.png"
-
+  class RotatedSquareStructure extends Structure
     checkCollision: (otherX, otherY, otherSize) ->
       diffX = @x - otherX
       diffY = @y - otherY
       distX = abs(diffX)
       distY = abs(diffY)
       manhattanishDist = distX + distY - (otherSize / 2)
-      return false if manhattanishDist > @size/2 # distance from center of house to corner
+      return false if manhattanishDist > @size/2 # distance from center to corner
       {direction: atan2(diffY, diffX), distSquared: distX * distX + distY * distY}
 
     collisionTangent: (other) ->
@@ -1629,44 +1632,58 @@
       context = board.context
       context.save()
       context.globalAlpha = 0.9
-      context.drawImage @image, @x - @size/2, @y/2 - @imageYOffset
+      context.drawImage @image, @x - @size/2 - @imageXOffset, @y/2 - @imageYOffset
       context.restore()
       return
 
-  class MotorHome extends Structure
-    x: x = 620
-    y: y = 520
-    imageXOffset: 123
-    imageYOffset: 146
-    lengthComponent: (l = 95) * 2
-    widthComponent: (w = 27.5) * 2
-    size: 245
-    stacking: y - l + w
-    stackingSlopes: [
-      [x - 3 * l + w, y - l + w, x - l + w, y + l + w]
-      [x - l + w, y + l + w, x + l + w, y - l + w]
-    ]
+  class FarmHouse extends RotatedSquareStructure
+    size: 434
+    imageYOffset: 352
+    imageSrc: "images/farmhouse.png"
 
-    constructor: (@game) ->
+  class RotatedRectangleStructure extends Structure
+    constructor: (game, x, y, slope) ->
+      @slope = slope if slope
+      @setStacking x, y
       super
-      @image = image = new Image()
-      image.src = "images/motorhome.png"
+
+    setStacking: (x, y) ->
+      l = @lengthComponent / 2
+      w = @widthComponent / 2
+      @stacking = y - l + w
+      if @slope > 0
+        @stackingSlopes = [
+          [x - l - w, y - l + w, x + l - w, y + l + w]
+          [x + l - w, y + l + w, x + 3 * l - w, y - l + w]
+        ]
+      else
+        @stackingSlopes = [
+          [x - 3 * l + w, y - l + w, x - l + w, y + l + w]
+          [x - l + w, y + l + w, x + l + w, y - l + w]
+        ]
 
     checkCollision: (otherX, otherY, otherSize) ->
       x = otherX - @x
       y = otherY - @y
       length = @lengthComponent + otherSize / 2
       width = @widthComponent + otherSize / 2
-      return false if x + y > width or
-                      x + y < -width or
-                      x - y > length or
-                      x - y < -length
+      if @slope > 0
+        return false if x - y > width or
+                        x - y < -width or
+                        x + y > length or
+                        x + y < -length
+      else
+        return false if x + y > width or
+                        x + y < -width or
+                        x - y > length or
+                        x - y < -length
       {direction: atan2(-y, -x), distSquared: x*x + y*y}
 
     collisionTangent: (other) ->
       x = other.x - @x
       y = other.y - @y
       width = @widthComponent
+      # TODO: might need slope check
       if x + y >= width or x + y <= -width
         -QUARTER_PI
       else
@@ -1680,8 +1697,33 @@
       context.restore()
       return
 
+  class MotorHome extends RotatedRectangleStructure
+    imageXOffset: 123
+    imageYOffset: 146
+    imageSrc: "images/motorhome.png"
+    lengthComponent: 190
+    widthComponent: 55
+    size: 245
+    slope: -1
+
+  class Tower extends RotatedSquareStructure
+    size: 74
+    imageXOffset: 36
+    imageYOffset: 223
+    imageSrc: "images/tower.png"
+
+  class Fence extends RotatedRectangleStructure
+    size: 293
+    imageXOffset: 149
+    imageYOffset: 138
+    lengthComponent: 293
+    widthComponent: 10
+    imageSrc: "images/fence-se.png"
+
   Structure.register 'farmhouse', FarmHouse
   Structure.register 'motorhome', MotorHome
+  Structure.register 'tower', Tower
+  Structure.register 'fence', Fence
 
   window.Zomgbie = Zomgbie
 )($)
