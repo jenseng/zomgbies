@@ -6,7 +6,7 @@
     __extends = function(child, parent) { for (var key in parent) { if (__hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; };
 
   (function($) {
-    var $status, AGENT_HEIGHT, Agent, AgentList, Board, Colt, FarmHouse, Fence, Game, Grenade, Grenades, HALF_PI, Item, MotorHome, MouseTarget, PI, Player, QUARTER_PI, RotatedRectangleStructure, RotatedSquareStructure, SPRITE_HEIGHT, SPRITE_WIDTH, SQRT_2, Stats, Structure, Sword, TAU, TEN_DEGREES, Tower, Tracker, Weapon, Zombie, Zomgbie, abs, atan2, ceil, cos, factory, floor, gravity, hypotenuse, lastRead, makeObservation, max, min, normalizeDirection, pick, pixelsPerMeter, pow, rand, read, register, round, sectorSize, sin, sqrt, sum, _ref, _ref1, _ref2, _ref3, _ref4, _ref5, _ref6, _ref7;
+    var $status, AGENT_HEIGHT, Agent, AgentList, Board, Colt, FarmHouse, Fence, Game, Grenade, Grenades, HALF_PI, Item, MotorHome, MouseTarget, PI, Player, QUARTER_PI, RotatedRectangleStructure, RotatedSquareStructure, SPRITE_HEIGHT, SPRITE_WIDTH, SQRT_2, Stats, Structure, Sword, TAU, TEN_DEGREES, Tower, Tracker, Weapon, Zombie, Zomgbie, abs, atan2, ceil, cos, factory, floor, gravity, hypotenuse, lastRead, makeObservation, max, min, normalizeDirection, pick, pixelsPerMeter, pow, rand, read, register, round, sectorSize, sin, sqrt, sum, _ref, _ref1, _ref2, _ref3, _ref4, _ref5, _ref6;
     sectorSize = 36;
     pixelsPerMeter = 36;
     gravity = 9.8 * pixelsPerMeter;
@@ -107,7 +107,7 @@
         this.keyUp = __bind(this.keyUp, this);
         this.keyDown = __bind(this.keyDown, this);
         config = this.config = $.extend({}, this.config, options, true);
-        this.board = new Board(this, $canvas);
+        this.board = new Board(this, $canvas, 2400, 2400);
         this.agents = new AgentList(this);
         this.mouseTarget = new MouseTarget(this);
         _ref1 = (_ref = config.structures) != null ? _ref : {};
@@ -115,7 +115,6 @@
           _ref2 = _ref1[_i], name = _ref2[0], args = 2 <= _ref2.length ? __slice.call(_ref2, 1) : [];
           this.agents.push(Structure.factory.apply(Structure, [name, this].concat(__slice.call(args))));
         }
-        this.agents.restackStructures();
         if (config.mode === 'observe') {
           config.patrolCorrection = 1;
           config.pursueTargets = false;
@@ -136,7 +135,7 @@
 
       Game.prototype.config = {
         ticksPerSecond: 30,
-        maxZombies: 0,
+        maxZombies: 100,
         maxSpawnsPerTick: 50,
         pursuitThreshold: 200,
         patrolCorrection: 3,
@@ -151,17 +150,17 @@
         $doc = $(document);
         this.$canvas.on('mousemove', function(e) {
           var _ref;
-          _this.mouseTarget.set(e.clientX, e.clientY * 2);
+          _this.mouseTarget.set(_this.board.x + e.clientX, _this.board.y + e.clientY * 2);
           return (_ref = _this.player) != null ? _ref.mouseMove() : void 0;
         });
         this.$canvas.on('mousedown', function(e) {
           var _ref;
-          _this.mouseTarget.set(e.clientX, e.clientY * 2);
+          _this.mouseTarget.set(_this.board.x + e.clientX, _this.board.y + e.clientY * 2);
           return (_ref = _this.player) != null ? _ref.mouseDown() : void 0;
         });
         this.$canvas.on('mouseup', function(e) {
           var _ref;
-          _this.mouseTarget.set(e.clientX, e.clientY * 2);
+          _this.mouseTarget.set(_this.board.x + e.clientX, _this.board.y + e.clientY * 2);
           return (_ref = _this.player) != null ? _ref.mouseUp() : void 0;
         });
         $doc.on('keydown', this.keyDown);
@@ -208,6 +207,7 @@
         this.time('run', function() {
           this.maybeAddZombies();
           this.agents.move();
+          this.board.move();
           return this.agents.sort();
         });
         this.time('render', function() {
@@ -283,33 +283,83 @@
 
     })();
     Board = (function() {
-      function Board(game, $canvas) {
+      function Board(game, $canvas, width, height) {
         this.game = game;
+        this.width = width;
+        this.height = height;
         this.resize = __bind(this.resize, this);
         this.config = this.game.config;
+        $canvas.css({
+          maxWidth: this.width,
+          maxHeight: this.height / 2
+        });
         this.canvas = $canvas[0];
         this.context = this.canvas.getContext('2d');
         this.resize();
+        this.x = this.width / 2 - this.visibleWidth / 2;
+        this.y = this.height / 2 - this.visibleHeight / 2;
       }
 
       Board.prototype.resize = function() {
-        this.canvas.width = this.canvas.offsetWidth;
+        this.visibleWidth = this.canvas.width = this.canvas.offsetWidth;
         this.canvas.height = this.canvas.offsetHeight;
-        this.width = this.canvas.width;
-        this.height = this.canvas.height * 2;
+        this.visibleHeight = this.canvas.height * 2;
+        this.x = min(this.x, this.width - this.visibleWidth);
+        this.y = min(this.y, this.height - this.visibleHeight);
+      };
+
+      Board.prototype.visible = function(x, y, sizeX, sizeYTop, sizeYBottom) {
+        if (sizeYBottom == null) {
+          sizeYBottom = sizeYTop;
+        }
+        return x + sizeX >= this.x && x - sizeX <= this.x + this.visibleWidth && y + sizeYBottom >= this.y && y - sizeYTop <= this.y + this.visibleHeight;
+      };
+
+      Board.prototype.makeVisible = function(agent, bufferX, bufferYBottom, bufferYTop) {
+        var mouse, oldX, oldY;
+        if (bufferYTop == null) {
+          bufferYTop = bufferYBottom;
+        }
+        oldX = this.x;
+        oldY = this.y;
+        if (agent.x - bufferX < this.x) {
+          this.x = max(agent.x - bufferX, 0);
+        } else if (agent.x + bufferX > this.x + this.visibleWidth) {
+          this.x = min(agent.x + bufferX, this.width) - this.visibleWidth;
+        }
+        if (agent.y - bufferYTop < this.y) {
+          this.y = max(agent.y - bufferYTop, 0);
+        } else if (agent.y + bufferYBottom > this.y + this.visibleHeight) {
+          this.y = min(agent.y + bufferYBottom, this.height) - this.visibleHeight;
+        }
+        mouse = this.game.mouseTarget;
+        if (true || agent !== mouse) {
+          mouse.x += this.x - oldX;
+          return mouse.y += this.y - oldY;
+        }
+      };
+
+      Board.prototype.move = function() {
+        var _ref;
+        if ((_ref = this.game.player) != null ? _ref.manual : void 0) {
+          return this.makeVisible(this.game.player, 64, 64, 128);
+        } else {
+          return this.makeVisible(this.game.mouseTarget, 24, 48);
+        }
       };
 
       Board.prototype.renderDebug = function() {
-        var context, slopes, x1, x2, y1, y2, _i, _len, _ref, _results;
-        if (slopes = this.game.agents.stackingSlopes) {
+        var context, slope, xMax, xMin, yMax, yMin, ySlope, zones, _i, _len, _ref, _results;
+        if (zones = this.game.agents.stackingZones) {
           context = this.context;
           context.strokeStyle = '#88f';
           _results = [];
-          for (_i = 0, _len = slopes.length; _i < _len; _i++) {
-            _ref = slopes[_i], x1 = _ref[0], y1 = _ref[1], x2 = _ref[2], y2 = _ref[3];
+          for (_i = 0, _len = zones.length; _i < _len; _i++) {
+            _ref = zones[_i], xMin = _ref[0], yMin = _ref[1], xMax = _ref[2], yMax = _ref[3], ySlope = _ref[4], slope = _ref[5];
             context.beginPath();
-            context.moveTo(x1, y1 / 2);
-            context.lineTo(x2, y2 / 2);
+            context.strokeRect(xMin - this.x, (yMin - this.y) / 2, xMax - xMin, (yMax - yMin) / 2);
+            context.moveTo(xMin - this.x, (ySlope - this.y) / 2);
+            context.lineTo(xMax - this.x, (ySlope - this.y + slope * (xMax - xMin)) / 2);
             _results.push(context.stroke());
           }
           return _results;
@@ -767,7 +817,7 @@
         agent.z = z;
         agent.size = size;
         agent.height = height;
-        agent.stacking = this.stackingFor(x, y);
+        agent.stacking = this.stackingFor(x, y, agent);
         if (rangeOld) {
           this.setSectors(agent, rangeOld, agent.sectorRange());
         } else {
@@ -852,59 +902,32 @@
         }
       };
 
-      AgentList.prototype.addStackingSlopes = function(structure, newSlopes) {
-        var slope, slopes, x1, x2, y1, y2, yMin, _i, _j, _len, _len1, _ref, _ref1;
-        slopes = (_ref = this.stackingSlopes) != null ? _ref : [];
-        for (_i = 0, _len = newSlopes.length; _i < _len; _i++) {
-          _ref1 = newSlopes[_i], x1 = _ref1[0], y1 = _ref1[1], x2 = _ref1[2], y2 = _ref1[3];
-          yMin = min(y1, y2, typeof minY !== "undefined" && minY !== null ? minY : y1);
-        }
-        for (_j = 0, _len1 = newSlopes.length; _j < _len1; _j++) {
-          slope = newSlopes[_j];
-          x1 = slope[0], y1 = slope[1], x2 = slope[2], y2 = slope[3];
-          slope.push((x2 - x1) / (y2 - y1));
-          slope.push(min(y1, y2) - yMin);
-          slope.push(structure);
-        }
-        this.stackingSlopes = slopes.concat(newSlopes);
-      };
-
-      AgentList.prototype.restackStructures = function() {
-        var structure, _i, _len, _ref, _results;
-        _ref = this.byStacking;
-        _results = [];
-        for (_i = 0, _len = _ref.length; _i < _len; _i++) {
-          structure = _ref[_i];
-          if (structure.structure) {
-            _results.push(structure.stacking = this.stackingFor(structure.x, structure.stacking, structure));
-          }
-        }
-        return _results;
+      AgentList.prototype.addStackingZones = function(structure, newZones) {
+        var zones, _ref;
+        zones = (_ref = this.stackingZones) != null ? _ref : [];
+        this.stackingZones = zones.concat(newZones);
       };
 
       AgentList.prototype.stackingFor = function(x, y, agent) {
-        var origY, sAgent, slope, x1, x2, y1, y2, yDiff, yExtra, _i, _len, _ref, _ref1;
+        var h, origY, scale, slope, xMax, xMin, yBase, yBaseFrd, yLine, yMax, yMin, ySlope, _i, _len, _ref, _ref1;
         origY = y;
-        _ref = this.stackingSlopes;
+        _ref = this.stackingZones;
         for (_i = 0, _len = _ref.length; _i < _len; _i++) {
-          _ref1 = _ref[_i], x1 = _ref1[0], y1 = _ref1[1], x2 = _ref1[2], y2 = _ref1[3], slope = _ref1[4], yExtra = _ref1[5], sAgent = _ref1[6];
-          if (agent && agent === sAgent) {
+          _ref1 = _ref[_i], xMin = _ref1[0], yMin = _ref1[1], xMax = _ref1[2], yMax = _ref1[3], ySlope = _ref1[4], slope = _ref1[5];
+          if (x < xMin || x > xMax || y < yMin || y > yMax) {
             continue;
           }
-          if (x < x1 || x > x2) {
-            continue;
+          yLine = ySlope + (x - xMin) * slope;
+          if (y < yLine) {
+            h = yLine - yMin;
+            yBaseFrd = yBase = yMin;
+          } else {
+            h = yMax - yLine;
+            yBase = yLine;
+            yBaseFrd = yMin + (yMax - yMin) / 2;
           }
-          if (y > y1 && y > y2) {
-            continue;
-          }
-          yDiff = (x - x1) * slope;
-          if (y > y1 + yDiff) {
-            continue;
-          }
-          if (slope < 1) {
-            yDiff = y1 - y2 + yDiff;
-          }
-          y -= yDiff - yExtra;
+          scale = h / ((yMax - yMin) / 2);
+          y = yBaseFrd + (y - yBase) / scale;
         }
         return y;
       };
@@ -1194,10 +1217,13 @@
 
       Grenade.prototype.renderShadow = function(board) {
         var context, game, gradient, x, y;
+        if (!board.visible(this.x, this.y, 20, 20)) {
+          return;
+        }
         context = board.context;
         game = this.game;
-        x = this.x;
-        y = this.y;
+        x = this.x - board.x;
+        y = this.y - board.y;
         context.save();
         context.scale(1, 0.5);
         if (this.exploded) {
@@ -1221,7 +1247,12 @@
       };
 
       Grenade.prototype.render = function(board) {
-        var animationTime, b, circles, context, fade, g, gray, i, opacity, r, rad, size, x, y, _i;
+        var animationTime, b, baseX, baseY, circles, context, fade, g, gray, i, opacity, r, rad, size, x, y, _i;
+        if (!board.visible(this.x, this.y, 25, 200, 10)) {
+          return;
+        }
+        baseX = this.x - board.x;
+        baseY = this.y - board.y;
         context = board.context;
         if (this.exploded) {
           animationTime = this.animationTimeExplosion - (Grenade.prototype.animationTime - this.animationTime);
@@ -1240,7 +1271,7 @@
             x = (5 - 10 * rand()) * size;
             y = (2 - 4 * rand()) * size;
             y -= (1 - animationTime / 15) * 200;
-            context.arc(this.x + x, this.y / 2 - this.z + y, rad, 0, TAU);
+            context.arc(baseX + x, baseY / 2 - this.z + y, rad, 0, TAU);
             gray = (1 - fade) * (96 + rand() * 128);
             r = floor(gray + fade * 255);
             g = floor(gray + fade * (192 + rand() * 64));
@@ -1252,7 +1283,7 @@
           context.restore();
         } else {
           context.beginPath();
-          context.arc(this.x, this.y / 2 - this.z - 3, 3, 0, TAU);
+          context.arc(baseX, baseY / 2 - this.z - 3, 3, 0, TAU);
           context.fillStyle = '#ab9';
           context.fill();
           context.strokeStyle = '#786';
@@ -1405,10 +1436,15 @@
 
       Colt.prototype.render = function(board) {
         var context, direction, lastShot, x, y;
+        if (!board.visible(this.x, this.y, 600, 600)) {
+          return;
+        }
         context = board.context;
         lastShot = this.lastShot;
         if (lastShot != null ? lastShot.visibleTime : void 0) {
           x = lastShot.x, y = lastShot.y, direction = lastShot.direction;
+          x -= board.x;
+          y -= board.y;
           context.save();
           context.beginPath();
           context.moveTo(x, y / 2 - 40);
@@ -1484,11 +1520,16 @@
       };
 
       Tracker.prototype.render = function(board) {
-        var context, decayTime, maxDecayTime, sprite;
+        var context, decayTime, maxDecayTime, sprite, x, y;
+        if (!board.visible(this.x, this.y, 50, 100, 50)) {
+          return;
+        }
         context = board.context;
         sprite = this.game.config.sprites[this.sprite];
         decayTime = this.decayTime;
         maxDecayTime = this.maxDecayTime;
+        x = this.x - board.x;
+        y = this.y - board.y;
         if (!(this.alive || decayTime)) {
           return;
         }
@@ -1497,25 +1538,28 @@
           if (decayTime) {
             context.globalAlpha = decayTime > maxDecayTime / 2 ? 1 : 2 * decayTime / maxDecayTime;
           }
-          context.translate(round(this.x), round(this.y / 2));
+          context.translate(round(x), round(y / 2));
           context.rotate(HALF_PI);
           context.drawImage(sprite, -sprite.width / 2 - 6, -sprite.height / 2);
           context.restore();
         } else {
-          context.drawImage(sprite, round(this.x - sprite.width / 2), round(this.y / 2 - AGENT_HEIGHT));
+          context.drawImage(sprite, round(x - sprite.width / 2), round(y / 2 - AGENT_HEIGHT));
         }
       };
 
       Tracker.prototype.renderShadow = function(board) {
         var context, halfLife, time, x, y;
+        if (!board.visible(this.x, this.y, 50, 50)) {
+          return;
+        }
         context = board.context;
-        x = this.x;
-        y = this.y;
+        x = this.x - board.x;
+        y = this.y - board.y;
         context.save();
         context.scale(1, 0.5);
         context.globalAlpha = 0.05;
         context.beginPath();
-        if (y !== this.stacking && this.config.debug) {
+        if (this.y !== this.stacking && this.config.debug) {
           context.arc(x, y, 100, 0, TAU);
           context.fillStyle = '#00f';
         } else {
@@ -1656,10 +1700,25 @@
       };
 
       Tracker.prototype.manualMove = function() {
-        var direction;
+        var board, direction, height, width, x, y;
         direction = normalizeDirection(atan2(this.manualY, this.manualX));
         if (this.manualX || this.manualY) {
           this.move(direction, this.speed);
+        }
+        board = this.game.board;
+        x = this.x, y = this.y;
+        width = board.width, height = board.height;
+        if (x < 12) {
+          this.x = 12;
+        }
+        if (x > width - 12) {
+          this.x = width - 12;
+        }
+        if (y < 128) {
+          this.y = 128;
+        }
+        if (y > height - 12) {
+          this.y = height - 12;
         }
       };
 
@@ -1819,7 +1878,7 @@
         context.scale(1, 0.5);
         context.globalAlpha = 0.75;
         context.beginPath();
-        context.translate(this.x, this.y);
+        context.translate(this.x - board.x, this.y - board.y);
         context.rotate(QUARTER_PI);
         context.arc(0, 0, 10, 0, TAU);
         context.strokeStyle = '#ccb';
@@ -1839,8 +1898,8 @@
         radius = min(width, height) / 5;
         eyeOffset = 0.7;
         gradient;
-        x = this.x;
-        y = this.y / 2;
+        x = this.x - board.x;
+        y = (this.y - board.y) / 2;
         mask = this.mask;
         maskContext = this.maskContext;
         mask.width = width;
@@ -2016,12 +2075,15 @@
       Player.prototype.renderShadow = function(board) {
         var context;
         Player.__super__.renderShadow.apply(this, arguments);
+        if (!board.visible(this.x, this.y, this.game.pursuitThreshold, this.game.pursuitThreshold)) {
+          return;
+        }
         context = board.context;
         context.save();
         context.scale(1, 0.5);
         context.globalAlpha = 0.25;
         context.beginPath();
-        context.arc(this.x, this.y, this.game.pursuitThreshold, 0, TAU);
+        context.arc(this.x - board.x, this.y - board.y, this.game.pursuitThreshold, 0, TAU);
         context.fillStyle = '#ffe';
         context.fill();
         context.restore();
@@ -2042,7 +2104,7 @@
       Structure.prototype.imageYOffset = 0;
 
       function Structure(game, x, y) {
-        var image, slopes;
+        var image, zones;
         this.game = game;
         this.x = x;
         this.y = y;
@@ -2051,16 +2113,29 @@
           this.image = image = new Image();
           image.src = this.imageSrc;
         }
+        this.imageXOffset || (this.imageXOffset = this.size / 2);
         if (this.stacking == null) {
           this.stacking = this.y;
         }
         this.agents.addToSectors(this, this.sectorRange());
-        if (slopes = this.stackingSlopes) {
-          this.agents.addStackingSlopes(this, slopes);
+        if (zones = this.stackingZones) {
+          this.agents.addStackingZones(this, zones);
         }
       }
 
       Structure.prototype.structure = true;
+
+      Structure.prototype.render = function(board) {
+        var context;
+        if (!board.visible(this.x, this.y, this.imageXOffset, this.imageYOffset * 2, this.imageYOffset)) {
+          return;
+        }
+        context = board.context;
+        context.save();
+        context.globalAlpha = 0.9;
+        context.drawImage(this.image, this.x - board.x - this.imageXOffset, (this.y - board.y) / 2 - this.imageYOffset);
+        context.restore();
+      };
 
       return Structure;
 
@@ -2100,15 +2175,6 @@
         }
       };
 
-      RotatedSquareStructure.prototype.render = function(board) {
-        var context;
-        context = board.context;
-        context.save();
-        context.globalAlpha = 0.9;
-        context.drawImage(this.image, this.x - this.size / 2 - this.imageXOffset, this.y / 2 - this.imageYOffset);
-        context.restore();
-      };
-
       return RotatedSquareStructure;
 
     })(Structure);
@@ -2144,11 +2210,10 @@
         var l, w;
         l = this.lengthComponent / 2;
         w = this.widthComponent / 2;
-        this.stacking = y - l + w;
         if (this.slope > 0) {
-          return this.stackingSlopes = [[x - l - w, y - l + w, x + l - w, y + l + w], [x + l - w, y + l + w, x + 3 * l - w, y - l + w]];
+          return this.stackingZones = [[x - l - w, y - l + w, x + l + w, y + l - w, y - l + w, (l - w) / (l + w)], [x - 2 * l, y - l + w, x - l - w, y + l - w, y, -1], [x + l + w, y - l + w, x + 2 * l, y + l - w, y + l - w, -1]];
         } else {
-          return this.stackingSlopes = [[x - 3 * l + w, y - l + w, x - l + w, y + l + w], [x - l + w, y + l + w, x + l + w, y - l + w]];
+          return this.stackingZones = [[x - l - w, y - l + w, x + l + w, y + l - w, y + l - w, (w - l) / (l + w)], [x - 2 * l, y - l + w, x - l - w, y + l - w, y, 1], [x + l + w, y - l + w, x + 2 * l, y + l - w, y - l + w, 1]];
         }
       };
 
@@ -2183,15 +2248,6 @@
         } else {
           return QUARTER_PI;
         }
-      };
-
-      RotatedRectangleStructure.prototype.render = function(board) {
-        var context;
-        context = board.context;
-        context.save();
-        context.globalAlpha = 0.9;
-        context.drawImage(this.image, this.x - this.imageXOffset, this.y / 2 - this.imageYOffset);
-        context.restore();
       };
 
       return RotatedRectangleStructure;
@@ -2232,7 +2288,7 @@
 
       Tower.prototype.size = 74;
 
-      Tower.prototype.imageXOffset = 36;
+      Tower.prototype.imageXOffset = 72;
 
       Tower.prototype.imageYOffset = 223;
 
@@ -2244,22 +2300,24 @@
     Fence = (function(_super) {
       __extends(Fence, _super);
 
-      function Fence() {
-        _ref7 = Fence.__super__.constructor.apply(this, arguments);
-        return _ref7;
-      }
-
       Fence.prototype.size = 293;
 
-      Fence.prototype.imageXOffset = 149;
+      Fence.prototype.imageXOffset = 147;
 
-      Fence.prototype.imageYOffset = 138;
+      Fence.prototype.imageYOffset = 136;
 
-      Fence.prototype.lengthComponent = 293;
+      Fence.prototype.lengthComponent = 281;
 
-      Fence.prototype.widthComponent = 10;
+      Fence.prototype.widthComponent = 12;
 
       Fence.prototype.imageSrc = "images/fence-se.png";
+
+      function Fence(game, x, y, slope) {
+        if (slope < 0) {
+          this.imageSrc = "images/fence-ne.png";
+        }
+        Fence.__super__.constructor.apply(this, arguments);
+      }
 
       return Fence;
 

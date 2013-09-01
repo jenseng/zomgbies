@@ -103,12 +103,11 @@
     constructor: (@$canvas, options) ->
       config = @config = $.extend({}, @config, options, true)
 
-      @board = new Board(this, $canvas)
+      @board = new Board(this, $canvas, 2400, 2400)
       @agents = new AgentList(this)
       @mouseTarget = new MouseTarget(this)
       for [name, args...] in config.structures ? {}
         @agents.push Structure.factory(name, this, args...)
-      @agents.restackStructures()
 
       if config.mode is 'observe'
         config.patrolCorrection = 1
@@ -126,7 +125,7 @@
 
     config:
       ticksPerSecond: 30
-      maxZombies: 0
+      maxZombies: 100
       maxSpawnsPerTick: 50
       pursuitThreshold: 200
       patrolCorrection: 3
@@ -138,15 +137,15 @@
       $doc = $(document)
 
       @$canvas.on 'mousemove', (e) =>
-        @mouseTarget.set e.clientX, e.clientY * 2
+        @mouseTarget.set @board.x + e.clientX, @board.y + e.clientY * 2
         @player?.mouseMove()
 
       @$canvas.on 'mousedown', (e) =>
-        @mouseTarget.set e.clientX, e.clientY * 2
+        @mouseTarget.set @board.x + e.clientX, @board.y + e.clientY * 2
         @player?.mouseDown()
 
       @$canvas.on 'mouseup', (e) =>
-        @mouseTarget.set e.clientX, e.clientY * 2
+        @mouseTarget.set @board.x + e.clientX, @board.y + e.clientY * 2
         @player?.mouseUp()
 
       $doc.on 'keydown', @keyDown
@@ -181,6 +180,7 @@
       @time 'run', ->
         @maybeAddZombies()
         @agents.move()
+        @board.move()
         @agents.sort()
 
       @time 'render', ->
@@ -238,27 +238,61 @@
       @setPursuitThreshold min(@pursuitThreshold + factor * @config.pursuitThreshold, 3 * @config.pursuitThreshold)
 
   class Board
-    constructor: (@game, $canvas) ->
+    constructor: (@game, $canvas, @width, @height) ->
       @config = @game.config
+      $canvas.css(maxWidth: @width, maxHeight: @height/2)
       @canvas = $canvas[0]
       @context = @canvas.getContext('2d')
       @resize()
+      @x = @width / 2 - @visibleWidth / 2
+      @y = @height / 2 - @visibleHeight / 2
 
     resize: =>
-      @canvas.width = @canvas.offsetWidth
+      @visibleWidth = @canvas.width = @canvas.offsetWidth
       @canvas.height = @canvas.offsetHeight
-      @width = @canvas.width
-      @height = @canvas.height * 2
+      @visibleHeight = @canvas.height * 2
+      @x = min(@x, @width - @visibleWidth)
+      @y = min(@y, @height - @visibleHeight)
       return
 
+    visible: (x, y, sizeX, sizeYTop, sizeYBottom = sizeYTop) ->
+      x + sizeX >= @x and
+      x - sizeX <= @x + @visibleWidth and
+      y + sizeYBottom >= @y and
+      y - sizeYTop <= @y + @visibleHeight
+
+    makeVisible: (agent, bufferX, bufferYBottom, bufferYTop = bufferYBottom) ->
+      oldX = @x
+      oldY = @y
+      if agent.x - bufferX < @x
+        @x = max(agent.x - bufferX, 0)
+      else if agent.x + bufferX > @x + @visibleWidth
+        @x = min(agent.x + bufferX, @width) - @visibleWidth
+      if agent.y - bufferYTop < @y
+        @y = max(agent.y - bufferYTop, 0)
+      else if agent.y + bufferYBottom > @y + @visibleHeight
+        @y = min(agent.y + bufferYBottom, @height) - @visibleHeight
+
+      mouse = @game.mouseTarget
+      if true or agent isnt mouse
+        mouse.x += @x - oldX
+        mouse.y += @y - oldY
+
+    move: ->
+      if @game.player?.manual
+        @makeVisible @game.player, 64, 64, 128
+      else
+        @makeVisible @game.mouseTarget, 24, 48
+
     renderDebug: ->
-      if slopes = @game.agents.stackingSlopes
+      if zones = @game.agents.stackingZones
         context = @context
         context.strokeStyle = '#88f'
-        for [x1, y1, x2, y2] in slopes
+        for [xMin, yMin, xMax, yMax, ySlope, slope] in zones
           context.beginPath()
-          context.moveTo(x1, y1 / 2)
-          context.lineTo(x2, y2 / 2)
+          context.strokeRect xMin - @x, (yMin - @y) / 2, xMax - xMin, (yMax - yMin) / 2
+          context.moveTo(xMin - @x, (ySlope - @y) / 2)
+          context.lineTo(xMax - @x, (ySlope - @y + slope * (xMax - xMin)) / 2)
           context.stroke()
 
     render: (args...) ->
@@ -370,6 +404,15 @@
           run: #{(sum(times.run) / tickTime).toFixed(2)}%
           render: #{(sum(times.render) / tickTime).toFixed(2)}%
         """, 30, "left", "top"
+      #@renderText board, """
+      #     #{game.player.x}:#{game.player.y}
+      #    yLine: #{agents.yLine.toFixed(2)}
+      #    yBase: #{agents.yBase.toFixed(2)}
+      #     h: #{agents.h.toFixed(2)}
+      #    scale: #{agents.scale.toFixed(2)}
+      #    adj: #{agents.adjustment.toFixed(2)}
+      #    stack: #{game.player.stacking?.toFixed(2)}
+      #  """, 30, "right", "top"
       return
 
     render: (board) ->
@@ -587,7 +630,7 @@
       agent.z = z
       agent.size = size
       agent.height = height
-      agent.stacking = @stackingFor(x, y)
+      agent.stacking = @stackingFor(x, y, agent)
       if rangeOld
         @setSectors agent, rangeOld, agent.sectorRange()
       else
@@ -650,7 +693,7 @@
         agent.render board
       return
 
-    # about stacking slopes:
+    # about stacking zones:
     #
     # structures can be large and irregular, so we need to adjust stacking
     # of things near them. consider a structure like so:
@@ -661,7 +704,7 @@
     #             /     /
     #            /     /
     #           /     /b
-    #          /  x  /
+    #          /  s  /
     #        a/     /
     #        /     /
     #       /     /
@@ -673,60 +716,87 @@
     # top left), making it technically in front, even though a human would
     # consider it behind it (the inverse is true for b). so that means "a"
     # would render on top of the structure, which is not great. so we
-    # define stacking slopes to adjust agents' stacking
+    # define stacking zones to adjust agents' stacking
     #
-    # first you find the point with the lowest y coordinate of any front
-    # face (p1). then get the lines along the face of the shape. if either
-    # end has a higher y than p1, extend a (sloped) line until you reach
-    # that value. these are your stacking slopes.
+    # find the points with the lowest and highest y values on either side
+    # (in this example p1 and p2 respectively). these will determine the
+    # bounds of your primary stacking zone. the line between these points
+    # is the stacking slope
     #
-    #         a1
-    #         ^
-    #         |       /\
-    #         |      /  \
-    # ________|___x1/____\p1
-    # \       |    /     /
-    #  \      |  b/     /
-    #   \     |  /     /b
-    #    \    | /  x  /
-    #     \   a/     /
-    #      \  /     /
-    #       \/     /
+    #                 /\
+    #                /  \
+    #         ______/____\p1
+    #        |     /   _//
+    #        |    /   / /|
+    #        |   /  _/ /b|
+    #        |  / _s  /  |
+    #        |a/ /   /   |
+    #        |/_/   /    |
+    #        //____/_____|
     #      p2\    /
     #         \  /
     #          \/
     #
-    # also be sure to set the structure's stacking to the y value of p1.
-    # when rendering, the structure and any points behind the stacking
-    # lines will have their stacking adjusted according to the height of
-    # the line at that point. for example, "a" will be drawn in its usual
-    # spot, but as if it had the stacking of a1. the structure's stacking
-    # will also decrease, so that agents like b will render in front.
-    addStackingSlopes: (structure, newSlopes) ->
-      slopes = @stackingSlopes ? []
-      yMin = min(y1, y2, minY ? y1) for [x1, y1, x2, y2] in newSlopes
-      for slope in newSlopes
-        [x1, y1, x2, y2] = slope
-        slope.push (x2 - x1) / (y2 - y1)
-        slope.push min(y1, y2) - yMin
-        slope.push structure
-      @stackingSlopes = slopes.concat(newSlopes)
+    # any agent inside this zone will be restacked in relation to the
+    # stacking slope (as if it were horizontal). note that the stacking
+    # zone blends seamlessly into the areas above and below; the scale
+    # within the zone is compressed or expanded relative to the slope.
+    # however, the same cannot be said for areas to the right and left.
+    # to avoid stacking issues with adjacent agents on either side of
+    # an edge (see b and c), you need lateral stacking zones.
+    #
+    #                 /\
+    #                /  \
+    #     ___ ______/____\p1_
+    #    |   |     /   _//\  |
+    #    |   |    /   / /| \ |
+    #    |   |   /  _/ /b|  \|
+    #----|   |  / _s  /  |c  |----
+    #    |\  |a/ /   /   |   |
+    #    | \ |/_/   /    |   |
+    #    |__\//____/_____|___|
+    #      p2\    /
+    #         \  /
+    #          \/
+    #
+    # without a stacking adjustment for c, b would be drawn in front of
+    # it. to determine the lateral stacking zones, just imaging a
+    # horizontal line passing through s's midpoint. you just need to
+    # create zones that bring the slope back from p1/p2 to that line
+    #
+    # note that the lateral stacking zones may be optional. if you have
+    # mirror image structures that will be adjacent, since their primary
+    # stacking zones would meet up, you don't need the lateral zones on
+    # the ends where they meet.
+    #
+    # pro tip: if structures have overlapping stacking zones, you're
+    # gonna have a bad time
+    addStackingZones: (structure, newZones) ->
+      zones = @stackingZones ? []
+      #for zone in newZones
+      @stackingZones = zones.concat(newZones)
       return
-
-    restackStructures: ->
-      for structure in @byStacking when structure.structure
-        structure.stacking = @stackingFor(structure.x, structure.stacking, structure)
 
     stackingFor: (x, y, agent) ->
       origY = y
-      for [x1, y1, x2, y2, slope, yExtra, sAgent] in @stackingSlopes
-        continue if agent and agent is sAgent
-        continue if x < x1 or x > x2
-        continue if y > y1 and y > y2
-        yDiff = (x - x1) * slope
-        continue if y > y1 + yDiff
-        yDiff = y1 - y2 + yDiff if slope < 1
-        y -= yDiff - yExtra
+      for [xMin, yMin, xMax, yMax, ySlope, slope] in @stackingZones
+        continue if x < xMin or x > xMax or y < yMin or y > yMax
+        yLine = ySlope + (x - xMin) * slope
+        if y < yLine
+          h = yLine - yMin
+          yBaseFrd = yBase = yMin
+        else
+          h = yMax - yLine
+          yBase = yLine
+          yBaseFrd = yMin + (yMax - yMin) / 2
+        scale = h / ((yMax - yMin) / 2)
+        # if agent is @game.player
+        #   @yLine = yLine
+        #  @h = h
+        #  @yBase = yBase
+        #  @scale = scale
+        #  @adjustment = (y - yBase) / scale
+        y = yBaseFrd + (y - yBase) / scale
       y
 
 
@@ -954,10 +1024,11 @@
       true
 
     renderShadow: (board) ->
+      return unless board.visible(@x, @y, 20, 20)
       context = board.context
       game = @game
-      x = @x
-      y = @y
+      x = @x - board.x
+      y = @y - board.y
       context.save()
       context.scale 1, 0.5
       if @exploded
@@ -979,6 +1050,9 @@
       context.restore()
 
     render: (board) ->
+      return unless board.visible(@x, @y, 25, 200, 10)
+      baseX = @x - board.x
+      baseY = @y - board.y
       context = board.context
       if @exploded
         animationTime = @animationTimeExplosion - (Grenade::animationTime - @animationTime)
@@ -995,7 +1069,7 @@
           x = (5 - 10 * rand()) * size
           y = (2 - 4 * rand()) * size
           y -= (1 - animationTime / 15) * 200
-          context.arc(@x + x, @y / 2 - @z + y, rad, 0, TAU)
+          context.arc(baseX + x, baseY / 2 - @z + y, rad, 0, TAU)
           gray = (1 - fade) * (96 + rand() * 128)
           r = floor(gray + fade * 255)
           g = floor(gray + fade * (192 + rand() * 64))
@@ -1006,7 +1080,7 @@
         context.restore()
       else
         context.beginPath()
-        context.arc @x, @y / 2 - @z - 3, 3, 0, TAU
+        context.arc baseX, baseY / 2 - @z - 3, 3, 0, TAU
         context.fillStyle = '#ab9'
         context.fill()
         context.strokeStyle = '#786'
@@ -1099,10 +1173,13 @@
       return
 
     render: (board) ->
+      return unless board.visible(@x, @y, 600, 600)
       context = board.context
       lastShot = @lastShot
       if lastShot?.visibleTime
         {x, y, direction} = lastShot
+        x -= board.x
+        y -= board.y
         context.save()
         context.beginPath()
         context.moveTo(x, y / 2 - 40) # shot fired from 5/9 up player
@@ -1161,33 +1238,37 @@
       return
 
     render: (board) ->
+      return unless board.visible(@x, @y, 50, 100, 50)
       context = board.context
       sprite = @game.config.sprites[@sprite]
       decayTime = @decayTime
       maxDecayTime = @maxDecayTime
+      x = @x - board.x
+      y = @y - board.y
       return unless @alive or decayTime
 
       if decayTime or @sleepTime
         context.save()
         if (decayTime)
           context.globalAlpha = if decayTime > maxDecayTime / 2 then 1 else 2 * decayTime / maxDecayTime
-        context.translate round(@x), round(@y / 2)
+        context.translate round(x), round(y / 2)
         context.rotate HALF_PI
         context.drawImage sprite, -sprite.width/2 - 6, -sprite.height/2
         context.restore()
       else
-        context.drawImage sprite, round(@x - sprite.width / 2), round(@y / 2 - AGENT_HEIGHT)
+        context.drawImage sprite, round(x - sprite.width / 2), round(y / 2 - AGENT_HEIGHT)
       return
 
     renderShadow: (board) ->
+      return unless board.visible(@x, @y, 50, 50)
       context = board.context
-      x = @x
-      y = @y
+      x = @x - board.x
+      y = @y - board.y
       context.save()
       context.scale 1, 0.5
       context.globalAlpha = 0.05
       context.beginPath()
-      if y isnt @stacking and @config.debug
+      if @y isnt @stacking and @config.debug
         context.arc x, y, 100, 0, TAU
         context.fillStyle = '#00f'
       else
@@ -1302,6 +1383,13 @@
       direction = normalizeDirection(atan2(@manualY, @manualX))
       if @manualX or @manualY
         @move direction, @speed
+      board = @game.board
+      {x, y} = this
+      {width, height} = board
+      @x = 12 if x < 12
+      @x = width - 12 if x > width - 12
+      @y = 128 if y < 128
+      @y = height - 12 if y > height - 12
       return
 
     pursue: ->
@@ -1425,7 +1513,7 @@
       context.scale 1, 0.5
       context.globalAlpha = 0.75
       context.beginPath()
-      context.translate @x, @y
+      context.translate @x - board.x, @y - board.y
       context.rotate QUARTER_PI
       context.arc 0, 0, 10, 0, TAU
       context.strokeStyle = '#ccb'
@@ -1443,8 +1531,8 @@
       radius = min(width, height) / 5
       eyeOffset = 0.7
       gradient
-      x = @x
-      y = @y / 2
+      x = @x - board.x
+      y = (@y - board.y) / 2
       mask = @mask
       maskContext = @maskContext
 
@@ -1581,12 +1669,13 @@
 
     renderShadow: (board) ->
       super
+      return unless board.visible(@x, @y, @game.pursuitThreshold, @game.pursuitThreshold)
       context = board.context
       context.save()
       context.scale 1, 0.5
       context.globalAlpha = 0.25
       context.beginPath()
-      context.arc @x, @y, @game.pursuitThreshold, 0, TAU
+      context.arc @x - board.x, @y - board.y, @game.pursuitThreshold, 0, TAU
       context.fillStyle = '#ffe'
       context.fill()
       context.restore()
@@ -1603,12 +1692,23 @@
       if @imageSrc
         @image = image = new Image()
         image.src = @imageSrc
+      @imageXOffset or= @size / 2
       @stacking ?= @y
       @agents.addToSectors this, @sectorRange()
-      if slopes = @stackingSlopes
-        @agents.addStackingSlopes this, slopes
+      if zones = @stackingZones
+        @agents.addStackingZones this, zones
 
     structure: true
+
+    render: (board) ->
+      return unless board.visible(@x, @y, @imageXOffset, @imageYOffset * 2, @imageYOffset)
+      context = board.context
+      context.save()
+      context.globalAlpha = 0.9
+      context.drawImage @image, @x - board.x - @imageXOffset, (@y - board.y) / 2 - @imageYOffset
+      context.restore()
+      return
+
 
   class RotatedSquareStructure extends Structure
     checkCollision: (otherX, otherY, otherSize) ->
@@ -1628,14 +1728,6 @@
       else
         -QUARTER_PI
 
-    render: (board) ->
-      context = board.context
-      context.save()
-      context.globalAlpha = 0.9
-      context.drawImage @image, @x - @size/2 - @imageXOffset, @y/2 - @imageYOffset
-      context.restore()
-      return
-
   class FarmHouse extends RotatedSquareStructure
     size: 434
     imageYOffset: 352
@@ -1650,16 +1742,18 @@
     setStacking: (x, y) ->
       l = @lengthComponent / 2
       w = @widthComponent / 2
-      @stacking = y - l + w
+      # xMin, yMin, xMax, yMax, ySlope, slope
       if @slope > 0
-        @stackingSlopes = [
-          [x - l - w, y - l + w, x + l - w, y + l + w]
-          [x + l - w, y + l + w, x + 3 * l - w, y - l + w]
+        @stackingZones = [
+          [x - l - w, y - l + w, x + l + w, y + l - w, y - l + w, (l-w)/(l+w)], # primary
+          [x - 2 * l, y - l + w, x - l - w, y + l - w, y, -1] # left
+          [x + l + w, y - l + w, x + 2 * l,  y + l - w, y + l - w, -1], # right
         ]
       else
-        @stackingSlopes = [
-          [x - 3 * l + w, y - l + w, x - l + w, y + l + w]
-          [x - l + w, y + l + w, x + l + w, y - l + w]
+        @stackingZones = [
+          [x - l - w, y - l + w, x + l + w, y + l - w, y + l - w, (w-l)/(l+w)], # primary
+          [x - 2 * l, y - l + w, x - l - w, y + l - w, y, 1], # left
+          [x + l + w, y - l + w, x + 2 * l,  y + l - w, y - l + w, 1] # right
         ]
 
     checkCollision: (otherX, otherY, otherSize) ->
@@ -1689,14 +1783,6 @@
       else
         QUARTER_PI
 
-    render: (board) ->
-      context = board.context
-      context.save()
-      context.globalAlpha = 0.9
-      context.drawImage @image, @x - @imageXOffset, @y/2 - @imageYOffset
-      context.restore()
-      return
-
   class MotorHome extends RotatedRectangleStructure
     imageXOffset: 123
     imageYOffset: 146
@@ -1708,17 +1794,20 @@
 
   class Tower extends RotatedSquareStructure
     size: 74
-    imageXOffset: 36
+    imageXOffset: 72
     imageYOffset: 223
     imageSrc: "images/tower.png"
 
   class Fence extends RotatedRectangleStructure
     size: 293
-    imageXOffset: 149
-    imageYOffset: 138
-    lengthComponent: 293
-    widthComponent: 10
+    imageXOffset: 147
+    imageYOffset: 136
+    lengthComponent: 281
+    widthComponent: 12
     imageSrc: "images/fence-se.png"
+    constructor: (game, x, y, slope) ->
+      @imageSrc = "images/fence-ne.png" if slope < 0
+      super
 
   Structure.register 'farmhouse', FarmHouse
   Structure.register 'motorhome', MotorHome

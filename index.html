@@ -7,7 +7,8 @@
         margin: 0;
       }
       canvas {
-        background: transparent url(images/background.png) no-repeat;
+        background: #f7f2ec;
+        //background: transparent url(images/background.png) no-repeat;
         position: absolute;
         width: 100%;
         height: 100%;
@@ -34,7 +35,7 @@
       Zomgbie(
         $('canvas'), {
           resize: true,
-          debug: true,
+          //debug: true,
           //mode: 'observe',
           weapons: ['colt', 'grenades'],
           messages: {
@@ -52,7 +53,8 @@
             ["farmhouse", 1144, 1408],
             ["motorhome", 620, 520],
             ["tower", 1650, 1100],
-            ["fence", 350, 1000, 1]
+            ["fence", 1815, 1255, 1],
+            ["fence", 1815, 955, -1]
           ]
         }
       );

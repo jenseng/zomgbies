@@ -6,8 +6,6 @@ A little zombie game written in ~~JavaScript~~ CoffeeScript
 
 ## TODO
 
-* more obstacles
-* make board size != canvas side, scroll on edge
 * moar sprites
   * have soft thresholds for switching directional sprites (so no jitters)
 * better bestMoveFor ... don't give up so quick if strafing, just if
