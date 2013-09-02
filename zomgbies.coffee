@@ -1334,6 +1334,7 @@
       @distSquared < (@pursuitThresholdSquared ? game.pursuitThresholdSquared)
 
     distract: (fakeTarget, distractTime, distractRadius) ->
+      @rest round(rand() * 20), true
       @targetTrackTime = @distractTime = distractTime
       @pursuitThreshold = distractRadius
       @pursuitThresholdSquared = distractRadius * distractRadius

@@ -1643,6 +1643,7 @@
       };
 
       Tracker.prototype.distract = function(fakeTarget, distractTime, distractRadius) {
+        this.rest(round(rand() * 20), true);
         this.targetTrackTime = this.distractTime = distractTime;
         this.pursuitThreshold = distractRadius;
         this.pursuitThresholdSquared = distractRadius * distractRadius;
