@@ -516,11 +516,11 @@
         player = this.game.player;
         weapon = player.weapon;
         context.save();
-        context.font = "bold 24px sans-serif";
+        context.font = "bold 24px monospace";
         context.textBaseline = "top";
-        context.globalAlpha = 0.6;
-        context.fillStyle = player.alive ? '#800' : '#333';
-        context.strokeStyle = '#000';
+        context.globalAlpha = 0.8;
+        context.fillStyle = player.alive ? '#d44' : '#888';
+        context.strokeStyle = player.alive ? '#400' : '#000';
         if (this.config.debug) {
           this.renderDebug(board);
         }
@@ -1436,11 +1436,11 @@
 
       Colt.prototype.render = function(board) {
         var context, direction, lastShot, x, y;
-        if (!board.visible(this.x, this.y, 600, 600)) {
-          return;
-        }
         context = board.context;
         lastShot = this.lastShot;
+        if (!(lastShot && board.visible(lastShot.x, lastShot.y, 600, 600))) {
+          return;
+        }
         if (lastShot != null ? lastShot.visibleTime : void 0) {
           x = lastShot.x, y = lastShot.y, direction = lastShot.direction;
           x -= board.x;

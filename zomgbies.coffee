@@ -421,11 +421,11 @@
       player = @game.player
       weapon = player.weapon
       context.save()
-      context.font = "bold 24px sans-serif"
+      context.font = "bold 24px monospace"
       context.textBaseline = "top"
-      context.globalAlpha = 0.6
-      context.fillStyle = if player.alive then '#800' else '#333'
-      context.strokeStyle = '#000'
+      context.globalAlpha = 0.8
+      context.fillStyle = if player.alive then '#d44' else '#888'
+      context.strokeStyle = if player.alive then '#400' else '#000'
       @renderDebug board if @config.debug
       @renderText board, """
           kills: #{@kills}
@@ -1173,9 +1173,9 @@
       return
 
     render: (board) ->
-      return unless board.visible(@x, @y, 600, 600)
       context = board.context
       lastShot = @lastShot
+      return unless lastShot and board.visible(lastShot.x, lastShot.y, 600, 600)
       if lastShot?.visibleTime
         {x, y, direction} = lastShot
         x -= board.x
