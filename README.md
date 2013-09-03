@@ -10,6 +10,7 @@ A little zombie game written in ~~JavaScript~~ CoffeeScript
   * have soft thresholds for switching directional sprites (so no jitters)
 * better bestMoveFor ... don't give up so quick if strafing, just if
 ping-ponging
+* get background back in
 * collision fixes/enhancements
   * detect inter-tick collisions (so we don't pass through things, or
     have weird rebound tangents)

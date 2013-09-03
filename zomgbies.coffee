@@ -150,13 +150,16 @@
       if @config.resize
         $(window).on 'resize', @board.resize
 
-      $(window).blur => @pause()
+      $(window).blur @pause
+      $(window).focus @start
       return
 
     pause: =>
+      @$canvas.css(cursor: 'default')
       @running = false
 
     start: =>
+      @$canvas.css(cursor: 'none')
       @running = true
       @times.nextTick = new Date().getTime()
       @run()

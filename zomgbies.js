@@ -173,16 +173,21 @@
         if (this.config.resize) {
           $(window).on('resize', this.board.resize);
         }
-        $(window).blur(function() {
-          return _this.pause();
-        });
+        $(window).blur(this.pause);
+        $(window).focus(this.start);
       };
 
       Game.prototype.pause = function() {
+        this.$canvas.css({
+          cursor: 'default'
+        });
         return this.running = false;
       };
 
       Game.prototype.start = function() {
+        this.$canvas.css({
+          cursor: 'none'
+        });
         this.running = true;
         this.times.nextTick = new Date().getTime();
         return this.run();
