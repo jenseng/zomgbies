@@ -6,7 +6,7 @@
     __extends = function(child, parent) { for (var key in parent) { if (__hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; };
 
   (function($) {
-    var $status, AGENT_HEIGHT, Agent, AgentList, Board, Colt, FarmHouse, Fence, Game, Grenade, Grenades, HALF_PI, Item, MotorHome, MouseTarget, PI, Player, QUARTER_PI, RotatedRectangleStructure, RotatedSquareStructure, SPRITE_HEIGHT, SPRITE_WIDTH, SQRT_2, Stats, Structure, Sword, TAU, TEN_DEGREES, Tower, Tracker, Weapon, Zombie, Zomgbie, abs, atan2, ceil, cos, factory, floor, gravity, hypotenuse, lastRead, makeObservation, max, min, normalizeDirection, pick, pixelsPerMeter, pow, rand, read, register, round, sectorSize, sin, sqrt, sum, _ref, _ref1, _ref2, _ref3, _ref4, _ref5, _ref6;
+    var $status, AGENT_HEIGHT, Agent, AgentList, Binoculars, Board, Colt, FarmHouse, Fence, Game, Grenade, Grenades, HALF_PI, Item, MotorHome, MouseTarget, PI, Player, QUARTER_PI, RotatedRectangleStructure, RotatedSquareStructure, SPRITE_HEIGHT, SPRITE_WIDTH, SQRT_2, Stats, Structure, Sword, TAU, TEN_DEGREES, Tower, Tracker, Weapon, Zombie, Zomgbie, abs, atan2, ceil, cos, factory, floor, gravity, hypotenuse, lastRead, makeObservation, max, min, normalizeDirection, pick, pixelsPerMeter, pow, rand, read, register, round, sectorSize, sin, sqrt, sum, _ref, _ref1, _ref2, _ref3, _ref4, _ref5, _ref6;
     sectorSize = 36;
     pixelsPerMeter = 36;
     gravity = 9.8 * pixelsPerMeter;
@@ -107,6 +107,7 @@
         this.start = __bind(this.start, this);
         this.pause = __bind(this.pause, this);
         config = this.config = $.extend({}, this.config, options, true);
+        this.delayedActions = [];
         this.board = new Board(this, $canvas, 2400, 2400);
         this.agents = new AgentList(this);
         this.mouseTarget = new MouseTarget(this);
@@ -115,16 +116,11 @@
           _ref2 = _ref1[_i], name = _ref2[0], args = 2 <= _ref2.length ? __slice.call(_ref2, 1) : [];
           this.agents.push(Structure.factory.apply(Structure, [name, this].concat(__slice.call(args))));
         }
-        if (config.mode === 'observe') {
-          config.patrolCorrection = 1;
-          config.pursueTargets = false;
-          this.addAllZombies();
-        } else {
-          this.stats = new Stats(this);
-          this.player = new Player(this, this.mouseTarget);
-          this.agents.push(this.player);
-        }
+        this.stats = new Stats(this);
+        this.player = new Player(this, this.mouseTarget);
+        this.agents.push(this.player);
         this.addListeners($canvas);
+        this.board.items = [this.mouseTarget, this.agents].concat(__slice.call(this.player.weapons), [this.stats]);
         this.setPursuitThreshold(config.pursuitThreshold);
         this.tickTime = floor(1000 / config.ticksPerSecond);
         this.times = {
@@ -177,7 +173,9 @@
         if (this.config.resize) {
           $(window).on('resize', this.board.resize);
         }
-        $(window).blur(this.pause);
+        $(window).blur(function() {
+          return _this.pause();
+        });
       };
 
       Game.prototype.pause = function() {
@@ -202,7 +200,7 @@
             }
           }
         } else {
-          if (key === 27 || key === 13 || key === 64) {
+          if (key === 27 || key === 13 || key === 32 || key === 80) {
             this.start();
           }
         }
@@ -246,15 +244,12 @@
           return this.agents.sort();
         });
         this.time('render', function() {
-          if (this.player) {
-            return this.board.render(this.mouseTarget, this.agents, this.player.weapons, this.stats);
-          } else {
-            return this.board.render(this.agents, this.mouseTarget);
-          }
+          return this.board.render();
         });
         if (this.pursuitThreshold > this.config.pursuitThreshold) {
           this.setPursuitThreshold(this.pursuitThreshold - 2);
         }
+        this.runDelayedActions();
         now = new Date().getTime();
         if (this.times.nextTick < now) {
           this.times.nextTick = now;
@@ -298,9 +293,42 @@
         }
       };
 
+      Game.prototype.runDelayedActions = function() {
+        var action, delayedActions, i, len, _results;
+        i = 0;
+        delayedActions = this.delayedActions;
+        len = delayedActions.length;
+        _results = [];
+        while (i < len) {
+          action = delayedActions[i];
+          if (--action[0]) {
+            _results.push(i++);
+          } else {
+            action[1].call(this);
+            delayedActions.splice(i, 1);
+            _results.push(len--);
+          }
+        }
+        return _results;
+      };
+
+      Game.prototype.addBinoculars = function() {
+        var _this = this;
+        return this.delayedActions.push([
+          300, function() {
+            var binoculars;
+            binoculars = new Binoculars;
+            binoculars.set(_this.mouseTarget.x, _this.mouseTarget.y);
+            _this.mouseTarget.listener = binoculars;
+            return _this.board.items.push(binoculars);
+          }
+        ]);
+      };
+
       Game.prototype.gameOver = function() {
         var message, messages;
         this.config.patrolCorrection = 1;
+        this.addBinoculars();
         messages = this.config.messages.gameOver;
         message = pick.apply(this, messages);
         read("game over. " + message);
@@ -342,11 +370,13 @@
       }
 
       Board.prototype.resize = function() {
-        this.visibleWidth = this.canvas.width = this.canvas.offsetWidth;
-        this.canvas.height = this.canvas.offsetHeight;
-        this.visibleHeight = this.canvas.height * 2;
+        this.visibleWidth = this.canvas.offsetWidth;
+        this.visibleHeight = this.canvas.offsetHeight * 2;
         this.x = min(this.x, this.width - this.visibleWidth);
         this.y = min(this.y, this.height - this.visibleHeight);
+        if (this.items) {
+          this.render();
+        }
       };
 
       Board.prototype.visible = function(x, y, sizeX, sizeYTop, sizeYBottom) {
@@ -407,32 +437,99 @@
         }
       };
 
+      Board.prototype.renderMenu = function() {
+        var context;
+        context = this.context;
+        context.fillStyle = 'rgba(128,0,0,0.75)';
+        context.fillRect(0, 0, this.width, this.height);
+        context.textBaseline = "top";
+        context.fillStyle = '#fff';
+        context.strokeStyle = '#400';
+        return this.renderText("PAUSED", 50, "center", "center");
+      };
+
+      Board.prototype.renderText = function(text, fontSize, xAlign, yAlign) {
+        var canvas, context, height, i, line, lineHeight, lines, metrics, newLines, width, x, y, _i, _len;
+        canvas = this.canvas;
+        width = canvas.width;
+        context = this.context;
+        lines = text.split("\n");
+        context.font = "bold " + fontSize + "px monospace";
+        context.lineWidth = max(1.5, fontSize / 18);
+        lineHeight = fontSize * 1.25;
+        i = 0;
+        while (i < lines.length) {
+          line = lines[i];
+          metrics = context.measureText(line);
+          if (metrics.width >= width) {
+            newLines = this.wrapText(line, context, width);
+            newLines.splice(0, 0, i, 1);
+            i += newLines.length - 1;
+            lines.splice.apply(lines, newLines);
+          } else {
+            i++;
+          }
+        }
+        height = lines.length * lineHeight;
+        x = 10;
+        y = 5;
+        if (xAlign === 'center') {
+          x = width / 2;
+        } else if (xAlign === 'right') {
+          x = width - 10;
+        }
+        if (yAlign === 'center') {
+          y = (canvas.height - height) / 2;
+        } else if (yAlign === 'bottom') {
+          y = canvas.height - height - 5;
+        }
+        context.textAlign = xAlign;
+        for (_i = 0, _len = lines.length; _i < _len; _i++) {
+          line = lines[_i];
+          context.fillText(line, x, y);
+          context.strokeText(line, x, y);
+          y += lineHeight;
+        }
+        context.lineWidth = 1;
+      };
+
+      Board.prototype.wrapText = function(text, context, width) {
+        var line, lines, metrics, testLine, word, words, _i, _len;
+        words = text.split(/\s/);
+        lines = [];
+        line = '';
+        for (_i = 0, _len = words.length; _i < _len; _i++) {
+          word = words[_i];
+          testLine = line + word + ' ';
+          metrics = context.measureText(testLine);
+          if (line && metrics.width > width) {
+            lines.push(line);
+            line = word + ' ';
+          } else {
+            line = testLine;
+          }
+        }
+        lines.push(line);
+        return lines;
+      };
+
       Board.prototype.render = function() {
-        var arg, arg2, args, _i, _j, _len, _len1;
-        args = 1 <= arguments.length ? __slice.call(arguments, 0) : [];
+        var item, _i, _len, _ref;
+        if (this.canvas.height !== this.visibleHeight / 2 || this.canvas.width !== this.visibleWidth) {
+          this.canvas.height = this.visibleHeight / 2;
+          this.canvas.width = this.visibleWidth;
+        }
         this.context.clearRect(0, 0, this.width, this.height);
         if (this.config.debug) {
           this.renderDebug();
         }
-        for (_i = 0, _len = args.length; _i < _len; _i++) {
-          arg = args[_i];
-          if (arg.render) {
-            arg.render(this);
-            continue;
-          }
-          for (_j = 0, _len1 = arg.length; _j < _len1; _j++) {
-            arg2 = arg[_j];
-            arg2.render(this);
-          }
+        _ref = this.items;
+        for (_i = 0, _len = _ref.length; _i < _len; _i++) {
+          item = _ref[_i];
+          item.render(this);
         }
         if (!this.game.running) {
-          this.context.fillStyle = 'rgba(128,0,0,0.75)';
-          this.context.fillRect(0, 0, this.width, this.height);
-          this.context.font = "bold 50px monospace";
-          this.context.textBaseline = "top";
-          this.context.fillStyle = '#fff';
-          this.context.strokeStyle = '#400';
-          this.game.stats.renderText(this, "PAUSED", 75, "center", "center");
+          this.renderMenu();
         }
       };
 
@@ -484,67 +581,6 @@
         this.statusTime = this.maxStatusTime;
       };
 
-      Stats.prototype.renderText = function(board, text, lineHeight, xAlign, yAlign) {
-        var canvas, context, height, i, line, lines, metrics, newLines, width, x, y, _i, _len;
-        canvas = board.canvas;
-        width = canvas.width;
-        context = board.context;
-        lines = text.split("\n");
-        i = 0;
-        while (i < lines.length) {
-          line = lines[i];
-          metrics = context.measureText(line);
-          if (metrics.width >= width) {
-            newLines = this.wrapText(line, context, width);
-            newLines.splice(0, 0, i, 1);
-            i += newLines.length - 1;
-            lines.splice.apply(lines, newLines);
-          } else {
-            i++;
-          }
-        }
-        height = lines.length * lineHeight;
-        x = 10;
-        y = 5;
-        if (xAlign === 'center') {
-          x = width / 2;
-        } else if (xAlign === 'right') {
-          x = width - 10;
-        }
-        if (yAlign === 'center') {
-          y = (canvas.height - height) / 2;
-        } else if (yAlign === 'bottom') {
-          y = canvas.height - height - 5;
-        }
-        context.textAlign = xAlign;
-        for (_i = 0, _len = lines.length; _i < _len; _i++) {
-          line = lines[_i];
-          context.fillText(line, x, y);
-          context.strokeText(line, x, y);
-          y += lineHeight;
-        }
-      };
-
-      Stats.prototype.wrapText = function(text, context, width) {
-        var line, lines, metrics, testLine, word, words, _i, _len;
-        words = text.split(/\s/);
-        lines = [];
-        line = '';
-        for (_i = 0, _len = words.length; _i < _len; _i++) {
-          word = words[_i];
-          testLine = line + word + ' ';
-          metrics = context.measureText(testLine);
-          if (line && metrics.width > width) {
-            lines.push(line);
-            line = word + ' ';
-          } else {
-            line = testLine;
-          }
-        }
-        lines.push(line);
-        return lines;
-      };
-
       Stats.prototype.renderDebug = function(board) {
         var agents, game, sector, sectorCount, sectors, tickTime, times;
         game = this.game;
@@ -556,7 +592,7 @@
         for (sector in sectors) {
           sectorCount++;
         }
-        this.renderText(board, "sectors: " + sectorCount + "\nagents: " + agents.length + "\nrun: " + ((sum(times.run) / tickTime).toFixed(2)) + "%\nrender: " + ((sum(times.render) / tickTime).toFixed(2)) + "%", 30, "left", "top");
+        board.renderText("sectors: " + sectorCount + "\nagents: " + agents.length + "\nrun: " + ((sum(times.run) / tickTime).toFixed(2)) + "%\nrender: " + ((sum(times.render) / tickTime).toFixed(2)) + "%", 24, "left", "top");
       };
 
       Stats.prototype.render = function(board) {
@@ -566,7 +602,6 @@
         player = this.game.player;
         weapon = player.weapon;
         context.save();
-        context.font = "bold 24px monospace";
         context.textBaseline = "top";
         context.globalAlpha = 0.8;
         context.fillStyle = player.alive ? '#d44' : '#888';
@@ -574,12 +609,11 @@
         if (this.config.debug) {
           this.renderDebug(board);
         }
-        this.renderText(board, "kills: " + this.kills + "\nstreak: " + this.killStreak + " (" + this.maxKillStreak + ")\ncombo: " + this.maxCombo, 30, "left", "bottom");
-        this.renderText(board, "walkers: " + this.game.agents.numZombies + "\n< weapon: " + weapon.name + " >\nammo: " + (weapon.shots || "...") + (weapon.cache ? " / " + weapon.cache : ""), 30, "right", "bottom");
+        board.renderText("kills: " + this.kills + "\nstreak: " + this.killStreak + " (" + this.maxKillStreak + ")\ncombo: " + this.maxCombo, 24, "left", "bottom");
+        board.renderText("walkers: " + this.game.agents.numZombies + "\n< weapon: " + weapon.name + " >\nammo: " + (weapon.shots || "...") + (weapon.cache ? " / " + weapon.cache : ""), 24, "right", "bottom");
         if (this.statusTime) {
-          context.font = "bold 36px sans-serif";
           context.globalAlpha = 0.6 * min(1, 4 * this.statusTime / this.maxStatusTime);
-          this.renderText(board, this.status, 42, "center", "center");
+          board.renderText(this.status, 36, "center", "center");
           this.statusTime--;
         }
         return context.restore();
@@ -1900,57 +1934,21 @@
       return Zombie;
 
     })(Tracker);
-    MouseTarget = (function() {
-      function MouseTarget(game) {
-        var board;
-        this.game = game;
-        board = game.board;
-        this.x = board.width / 2;
-        this.y = board.height / 2;
-        if (game.config.mode === 'observe') {
-          this.mask = document.createElement('canvas');
-          this.maskContext = this.mask.getContext('2d');
-          this.render = this.renderBinoculars;
-          this.renderShadow = function() {};
-        }
+    Binoculars = (function() {
+      function Binoculars() {
+        this.mask = document.createElement('canvas');
+        this.maskContext = this.mask.getContext('2d');
+        this.visible = false;
       }
 
-      MouseTarget.prototype.trackable = true;
-
-      MouseTarget.prototype.size = 0;
-
-      MouseTarget.prototype.caughtBy = function() {};
-
-      MouseTarget.prototype.set = function(x, y) {
+      Binoculars.prototype.set = function(x, y) {
         this.x = x;
         this.y = y;
       };
 
-      MouseTarget.prototype.render = function() {};
+      Binoculars.prototype.fadeInTime = 150;
 
-      MouseTarget.prototype.renderShadow = function(board) {
-        var context, player;
-        player = this.player != null ? this.player : this.player = this.game.player;
-        if (!(player && player.alive && !player.manual && player.currentSpeed)) {
-          return;
-        }
-        context = board.context;
-        context.save();
-        context.scale(1, 0.5);
-        context.globalAlpha = 0.75;
-        context.beginPath();
-        context.translate(this.x - board.x, this.y - board.y);
-        context.rotate(QUARTER_PI);
-        context.arc(0, 0, 10, 0, TAU);
-        context.strokeStyle = '#ccb';
-        context.stroke();
-        context.fillStyle = '#ccb';
-        context.fillRect(-20, -1, 40, 3);
-        context.fillRect(-1, -20, 3, 40);
-        return context.restore();
-      };
-
-      MouseTarget.prototype.renderBinoculars = function(board) {
+      Binoculars.prototype.render = function(board) {
         var canvas, context, eyeOffset, gradient, height, mask, maskContext, radius, width, x, y;
         context = board.context;
         canvas = board.canvas;
@@ -1981,7 +1979,64 @@
         maskContext.globalCompositeOperation = 'xor';
         maskContext.fillStyle = 'rgba(0,0,0,1)';
         maskContext.fillRect(0, 0, width, height);
+        context.save();
+        if (this.fadeInTime) {
+          this.fadeInTime--;
+        }
+        context.globalAlpha = 1 - (this.fadeInTime / Binoculars.prototype.fadeInTime);
         context.drawImage(mask, 0, 0);
+        context.restore();
+      };
+
+      Binoculars.prototype.renderShadow = function() {};
+
+      return Binoculars;
+
+    })();
+    MouseTarget = (function() {
+      function MouseTarget(game) {
+        var board;
+        this.game = game;
+        board = game.board;
+        this.x = board.width / 2;
+        this.y = board.height / 2;
+      }
+
+      MouseTarget.prototype.trackable = true;
+
+      MouseTarget.prototype.size = 0;
+
+      MouseTarget.prototype.caughtBy = function() {};
+
+      MouseTarget.prototype.set = function(x, y) {
+        var _ref3;
+        this.x = x;
+        this.y = y;
+        return (_ref3 = this.listener) != null ? _ref3.set(this.x, this.y) : void 0;
+      };
+
+      MouseTarget.prototype.render = function() {};
+
+      MouseTarget.prototype.renderShadow = function(board) {
+        var context, player;
+        player = this.player != null ? this.player : this.player = this.game.player;
+        if (!(player && player.alive && !player.manual && player.currentSpeed)) {
+          return;
+        }
+        context = board.context;
+        context.save();
+        context.scale(1, 0.5);
+        context.globalAlpha = 0.75;
+        context.beginPath();
+        context.translate(this.x - board.x, this.y - board.y);
+        context.rotate(QUARTER_PI);
+        context.arc(0, 0, 10, 0, TAU);
+        context.strokeStyle = '#ccb';
+        context.stroke();
+        context.fillStyle = '#ccb';
+        context.fillRect(-20, -1, 40, 3);
+        context.fillRect(-1, -20, 3, 40);
+        context.restore();
       };
 
       return MouseTarget;

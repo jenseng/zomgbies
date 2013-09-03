@@ -100,21 +100,17 @@
     constructor: (@$canvas, options) ->
       config = @config = $.extend({}, @config, options, true)
 
+      @delayedActions = []
       @board = new Board(this, $canvas, 2400, 2400)
       @agents = new AgentList(this)
       @mouseTarget = new MouseTarget(this)
       for [name, args...] in config.structures ? {}
         @agents.push Structure.factory(name, this, args...)
-
-      if config.mode is 'observe'
-        config.patrolCorrection = 1
-        config.pursueTargets = false
-        @addAllZombies()
-      else
-        @stats = new Stats(this)
-        @player = new Player(this, @mouseTarget)
-        @agents.push @player
+      @stats = new Stats(this)
+      @player = new Player(this, @mouseTarget)
+      @agents.push @player
       @addListeners $canvas
+      @board.items = [@mouseTarget, @agents, @player.weapons..., @stats]
 
       @setPursuitThreshold config.pursuitThreshold
       @tickTime = floor(1000 / config.ticksPerSecond)
@@ -154,7 +150,7 @@
       if @config.resize
         $(window).on 'resize', @board.resize
 
-      $(window).blur @pause
+      $(window).blur => @pause()
       return
 
     pause: =>
@@ -173,7 +169,7 @@
         else
           @player?.keyDown(key)
       else
-        if key is 27 or key is 13 or key is 64
+        if key is 27 or key is 13 or key is 32 or key is 80
           @start()
       return
 
@@ -203,12 +199,12 @@
         @agents.sort()
 
       @time 'render', ->
-        if @player
-          @board.render @mouseTarget, @agents, @player.weapons, @stats
-        else
-          @board.render @agents, @mouseTarget
+        @board.render()
       if @pursuitThreshold > @config.pursuitThreshold
         @setPursuitThreshold @pursuitThreshold - 2
+
+      @runDelayedActions()
+
       now = new Date().getTime()
       @times.nextTick = now if @times.nextTick < now
       setTimeout @run, @times.nextTick - now if @running
@@ -241,8 +237,30 @@
           @agents.push zombie
       return
 
+    runDelayedActions: ->
+      i = 0
+      delayedActions = @delayedActions
+      len = delayedActions.length
+      while i < len
+        action = delayedActions[i]
+        if --action[0]
+          i++
+        else
+          action[1].call(this)
+          delayedActions.splice i, 1
+          len--
+
+    addBinoculars: ->
+      @delayedActions.push [300, =>
+        binoculars = new Binoculars
+        binoculars.set(@mouseTarget.x, @mouseTarget.y)
+        @mouseTarget.listener = binoculars
+        @board.items.push binoculars
+      ]
+
     gameOver: ->
       @config.patrolCorrection = 1
+      @addBinoculars()
       messages = @config.messages.gameOver
       message = pick.apply(this, messages)
       read "game over. " + message
@@ -269,11 +287,11 @@
       @y = @height / 2 - @visibleHeight / 2
 
     resize: =>
-      @visibleWidth = @canvas.width = @canvas.offsetWidth
-      @canvas.height = @canvas.offsetHeight
-      @visibleHeight = @canvas.height * 2
+      @visibleWidth = @canvas.offsetWidth
+      @visibleHeight = @canvas.offsetHeight * 2
       @x = min(@x, @width - @visibleWidth)
       @y = min(@y, @height - @visibleHeight)
+      @render() if @items
       return
 
     visible: (x, y, sizeX, sizeYTop, sizeYBottom = sizeYTop) ->
@@ -316,23 +334,80 @@
           context.lineTo(xMax - @x, (ySlope - @y + slope * (xMax - xMin)) / 2)
           context.stroke()
 
-    render: (args...) ->
+    renderMenu: ->
+      context = @context
+      context.fillStyle = 'rgba(128,0,0,0.75)'
+      context.fillRect 0, 0, @width, @height
+      context.textBaseline = "top"
+      context.fillStyle = '#fff'
+      context.strokeStyle = '#400'
+      @renderText "PAUSED", 50, "center", "center"
+
+    renderText: (text, fontSize, xAlign, yAlign) ->
+      canvas = @canvas
+      width = canvas.width
+      context = @context
+      lines = text.split("\n")
+      context.font = "bold #{fontSize}px monospace"
+      context.lineWidth = max(1.5, fontSize / 18)
+      lineHeight = fontSize * 1.25
+
+      i = 0
+      while i < lines.length
+        line = lines[i]
+        metrics = context.measureText(line)
+        if metrics.width >= width
+          newLines = @wrapText(line, context, width)
+          newLines.splice(0, 0, i, 1)
+          i += newLines.length - 1
+          lines.splice.apply lines, newLines
+        else
+          i++
+      height = lines.length * lineHeight
+
+      x = 10
+      y = 5
+      if xAlign is 'center'
+        x = width / 2
+      else if xAlign is 'right'
+        x = width - 10
+      if yAlign is 'center'
+        y = (canvas.height - height) / 2
+      else if (yAlign is 'bottom')
+        y = canvas.height - height - 5
+
+      context.textAlign = xAlign
+      for line in lines
+        context.fillText line, x, y
+        context.strokeText line, x, y
+        y += lineHeight
+      context.lineWidth = 1
+      return
+
+    wrapText: (text, context, width) ->
+      words = text.split(/\s/)
+      lines = []
+      line = ''
+      for word in words
+        testLine = line + word + ' '
+        metrics = context.measureText(testLine)
+        if line and metrics.width > width
+          lines.push line
+          line = word + ' '
+        else
+          line = testLine
+      lines.push line
+      lines
+
+    render: ->
+      if @canvas.height isnt @visibleHeight / 2 or @canvas.width isnt @visibleWidth
+        @canvas.height = @visibleHeight / 2
+        @canvas.width = @visibleWidth
       @context.clearRect 0, 0, @width, @height
       @renderDebug() if @config.debug
-      for arg in args
-        if arg.render
-          arg.render(this)
-          continue
-        for arg2 in arg
-          arg2.render(this)
-      if not @game.running
-        @context.fillStyle = 'rgba(128,0,0,0.75)'
-        @context.fillRect 0, 0, @width, @height
-        @context.font = "bold 50px monospace"
-        @context.textBaseline = "top"
-        @context.fillStyle = '#fff'
-        @context.strokeStyle = '#400'
-        @game.stats.renderText this, "PAUSED", 75, "center", "center"
+      for item in @items
+        item.render(this)
+      @renderMenu() if not @game.running
       return
 
   class Stats
@@ -367,58 +442,6 @@
       @statusTime = @maxStatusTime
       return
 
-    renderText: (board, text, lineHeight, xAlign, yAlign) ->
-      canvas = board.canvas
-      width = canvas.width
-      context = board.context
-      lines = text.split("\n")
-
-      i = 0
-      while i < lines.length
-        line = lines[i]
-        metrics = context.measureText(line)
-        if metrics.width >= width
-          newLines = @wrapText(line, context, width)
-          newLines.splice(0, 0, i, 1)
-          i += newLines.length - 1
-          lines.splice.apply lines, newLines
-        else
-          i++
-      height = lines.length * lineHeight
-
-      x = 10
-      y = 5
-      if xAlign is 'center'
-        x = width / 2
-      else if xAlign is 'right'
-        x = width - 10
-      if yAlign is 'center'
-        y = (canvas.height - height) / 2
-      else if (yAlign is 'bottom')
-        y = canvas.height - height - 5
-
-      context.textAlign = xAlign
-      for line in lines
-        context.fillText line, x, y
-        context.strokeText line, x, y
-        y += lineHeight
-      return
-
-    wrapText: (text, context, width) ->
-      words = text.split(/\s/)
-      lines = []
-      line = ''
-      for word in words
-        testLine = line + word + ' '
-        metrics = context.measureText(testLine)
-        if line and metrics.width > width
-          lines.push line
-          line = word + ' '
-        else
-          line = testLine
-      lines.push line
-      lines
-
     renderDebug: (board) ->
       game = @game
       tickTime = game.tickTime
@@ -427,13 +450,13 @@
       sectors = agents.sectors
       sectorCount = 0
       sectorCount++ for sector of sectors
-      @renderText board, """
+      board.renderText """
           sectors: #{sectorCount}
           agents: #{agents.length}
           run: #{(sum(times.run) / tickTime).toFixed(2)}%
           render: #{(sum(times.render) / tickTime).toFixed(2)}%
-        """, 30, "left", "top"
-      #@renderText board, """
+        """, 24, "left", "top"
+      #board.renderText, """
       #     #{game.player.x}:#{game.player.y}
       #    yLine: #{agents.yLine.toFixed(2)}
       #    yBase: #{agents.yBase.toFixed(2)}
@@ -441,7 +464,7 @@
       #    scale: #{agents.scale.toFixed(2)}
       #    adj: #{agents.adjustment.toFixed(2)}
       #    stack: #{game.player.stacking?.toFixed(2)}
-      #  """, 30, "right", "top"
+      #  """, 24, "right", "top"
       return
 
     render: (board) ->
@@ -450,26 +473,24 @@
       player = @game.player
       weapon = player.weapon
       context.save()
-      context.font = "bold 24px monospace"
       context.textBaseline = "top"
       context.globalAlpha = 0.8
       context.fillStyle = if player.alive then '#d44' else '#888'
       context.strokeStyle = if player.alive then '#400' else '#000'
       @renderDebug board if @config.debug
-      @renderText board, """
+      board.renderText """
           kills: #{@kills}
           streak: #{@killStreak} (#{@maxKillStreak})
           combo: #{@maxCombo}
-        """, 30, "left", "bottom"
-      @renderText board, """
+        """, 24, "left", "bottom"
+      board.renderText """
           walkers: #{@game.agents.numZombies}
           < weapon: #{weapon.name} >
           ammo: #{weapon.shots or "..."}#{if weapon.cache then " / " + weapon.cache else ""}
-        """, 30, "right", "bottom"
+        """, 24, "right", "bottom"
       if @statusTime
-        context.font = "bold 36px sans-serif"
         context.globalAlpha = 0.6 * min(1, 4 * @statusTime / @maxStatusTime)
-        @renderText board, @status, 42, "center", "center"
+        board.renderText @status, 36, "center", "center"
         @statusTime--
       context.restore()
 
@@ -1518,46 +1539,17 @@
     maxSpeed: 6
     zombie: true
 
-  class MouseTarget
-    constructor: (game) ->
-      @game = game
-      board = game.board
-      @x = board.width / 2
-      @y = board.height / 2
-      if game.config.mode is 'observe'
-        @mask = document.createElement('canvas')
-        @maskContext = @mask.getContext('2d')
-        @render = @renderBinoculars
-        @renderShadow = ->
-
-    trackable: true
-    size: 0
-
-    caughtBy: ->
+  class Binoculars
+    constructor: ->
+      @mask = document.createElement('canvas')
+      @maskContext = @mask.getContext('2d')
+      @visible = false
 
     set: (@x, @y) ->
 
-    render: ->
+    fadeInTime: 150
 
-    renderShadow: (board) ->
-      player = @player ?= @game.player
-      return unless player and player.alive and not player.manual and player.currentSpeed
-      context = board.context
-      context.save()
-      context.scale 1, 0.5
-      context.globalAlpha = 0.75
-      context.beginPath()
-      context.translate @x - board.x, @y - board.y
-      context.rotate QUARTER_PI
-      context.arc 0, 0, 10, 0, TAU
-      context.strokeStyle = '#ccb'
-      context.stroke()
-      context.fillStyle = '#ccb'
-      context.fillRect -20, -1, 40, 3
-      context.fillRect -1, -20, 3, 40
-      context.restore()
-
-    renderBinoculars: (board) ->
+    render: (board) ->
       context = board.context
       canvas = board.canvas
       width = canvas.width
@@ -1588,7 +1580,49 @@
       maskContext.globalCompositeOperation = 'xor'
       maskContext.fillStyle = 'rgba(0,0,0,1)'
       maskContext.fillRect 0, 0, width, height
+      context.save()
+      @fadeInTime-- if @fadeInTime
+      context.globalAlpha = 1 - (@fadeInTime / Binoculars::fadeInTime)
       context.drawImage mask, 0, 0
+      context.restore()
+      return
+
+    renderShadow: ->
+
+  class MouseTarget
+    constructor: (game) ->
+      @game = game
+      board = game.board
+      @x = board.width / 2
+      @y = board.height / 2
+
+    trackable: true
+    size: 0
+
+    caughtBy: ->
+
+    set: (@x, @y) ->
+      @listener?.set(@x, @y)
+
+    render: ->
+
+    renderShadow: (board) ->
+      player = @player ?= @game.player
+      return unless player and player.alive and not player.manual and player.currentSpeed
+      context = board.context
+      context.save()
+      context.scale 1, 0.5
+      context.globalAlpha = 0.75
+      context.beginPath()
+      context.translate @x - board.x, @y - board.y
+      context.rotate QUARTER_PI
+      context.arc 0, 0, 10, 0, TAU
+      context.strokeStyle = '#ccb'
+      context.stroke()
+      context.fillStyle = '#ccb'
+      context.fillRect -20, -1, 40, 3
+      context.fillRect -1, -20, 3, 40
+      context.restore()
       return
 
   class Player extends Tracker
