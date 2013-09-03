@@ -63,9 +63,6 @@
       "i've got a bad feeling about this"
       "nice shooting, tex"
     )
-    setTimeout makeObservation, 5000 + 1000 * floor(rand() * 20)
-
-  setTimeout makeObservation, 10000
 
   normalizeDirection = (direction) ->
     if direction > PI
@@ -91,7 +88,7 @@
     new @types[name](args...)
 
   Zomgbie = ($canvas, options) ->
-    new Game($canvas, options).run()
+    new Game($canvas, options).start()
 
   Zomgbie.registerExtension = (type, name, constructor) ->
     if type is 'weapon'
@@ -137,14 +134,17 @@
       $doc = $(document)
 
       @$canvas.on 'mousemove', (e) =>
+        return unless @running
         @mouseTarget.set @board.x + e.clientX, @board.y + e.clientY * 2
         @player?.mouseMove()
 
       @$canvas.on 'mousedown', (e) =>
+        return unless @running
         @mouseTarget.set @board.x + e.clientX, @board.y + e.clientY * 2
         @player?.mouseDown()
 
       @$canvas.on 'mouseup', (e) =>
+        return unless @running
         @mouseTarget.set @board.x + e.clientX, @board.y + e.clientY * 2
         @player?.mouseUp()
 
@@ -153,16 +153,33 @@
 
       if @config.resize
         $(window).on 'resize', @board.resize
+
+      $(window).blur @pause
       return
+
+    pause: =>
+      @running = false
+
+    start: =>
+      @running = true
+      @times.nextTick = new Date().getTime()
+      @run()
 
     keyDown: (e) =>
       key = e.which
-      @player?.keyDown(key)
+      if @running
+        if key is 27
+          @pause()
+        else
+          @player?.keyDown(key)
+      else
+        if key is 27 or key is 13 or key is 64
+          @start()
       return
 
     keyUp: (e) =>
       key = e.which
-      @player?.keyUp(key)
+      @player?.keyUp(key) if @running
       return
 
     time: (label, code) ->
@@ -177,6 +194,8 @@
       @times.nextTick ?= @times.started = new Date().getTime()
       @times.nextTick += @tickTime
 
+      makeObservation() if 750 * rand() < 1
+
       @time 'run', ->
         @maybeAddZombies()
         @agents.move()
@@ -190,7 +209,9 @@
           @board.render @agents, @mouseTarget
       if @pursuitThreshold > @config.pursuitThreshold
         @setPursuitThreshold @pursuitThreshold - 2
-      setTimeout @run, @times.nextTick - new Date().getTime()
+      now = new Date().getTime()
+      @times.nextTick = now if @times.nextTick < now
+      setTimeout @run, @times.nextTick - now if @running
       return
 
     addAllZombies: ->
@@ -304,6 +325,14 @@
           continue
         for arg2 in arg
           arg2.render(this)
+      if not @game.running
+        @context.fillStyle = 'rgba(128,0,0,0.75)'
+        @context.fillRect 0, 0, @width, @height
+        @context.font = "bold 50px monospace"
+        @context.textBaseline = "top"
+        @context.fillStyle = '#fff'
+        @context.strokeStyle = '#400'
+        @game.stats.renderText this, "PAUSED", 75, "center", "center"
       return
 
   class Stats
@@ -809,18 +838,21 @@
     ready: true
 
     disable: (time, callback) ->
+      @disableTime = time
+      @disableCallback = callback
       @ready = false
-      setTimeout =>
-        if @player.alive
-          @ready = true
-        callback.call(this)
-      , time
       return
 
-    closest: ->
+    closest: =>
       for agent in @game.agents.byDistance when agent.alive and agent.zombie and not agent.sleepTime
         return agent
       return
+
+    nextMove: ->
+      if @disableTime and not --@disableTime
+        @disableCallback()
+        @ready = true
+      true
 
     render: ->
     fire: ->
@@ -895,17 +927,17 @@
   class Grenade extends Item
     constructor: ->
       super
-      @pulledPin = new Date().getTime()
       pin = @sounds.pin
       pin.load()
       pin.play()
-      setTimeout @explode, @timeToExplode
+      @agents.push this
 
     sounds:
       pin: $('<audio src="audio/pin.mp3" preload="auto"></audio>')[0]
       hit: $('<audio src="audio/grenadehit.m4a" preload="auto"></audio>')[0]
       explode: $('<audio src="audio/explode.mp3" preload="auto"></audio>')[0]
-    timeToExplode: 1500
+    timeToExplode: 45
+    timeToThrow: 15
     trackable: true
     killRadiusSquared: 60 * 60
     maimRadiusSquared: 120 * 120
@@ -923,11 +955,10 @@
       startOffset = player.size / 2 # throwing from edge of player
       @thrown = true
       @zRest = false
-      @agents.push this
 
       if target
         ogTarget = target
-        target = target.projectedLocation(@timeToExplode + @pulledPin - new Date().getTime())
+        target = target.projectedLocation(@timeToExplode * @game.tickTime)
         distX = target.x - x
         distY = target.y - y
         dist = max(hypotenuse(distX, distY) - startOffset, 1)
@@ -1020,7 +1051,13 @@
           read pick("hahaha", "awesome, #{hitCount}", "got #{hitCount}", "haha, you blew up #{hitCount}", "ha, got #{hitCount}", "that'll teach them", "it's raining arms", "i love grenades", "strong work", "so strong", "heart grenades so much")
         @animationTime--
       else
-        super
+        if not @thrown and (not @timeToThrow or not --@timeToThrow) and @throwCb
+          @throwCb()
+          @thrown = true
+        if @thrown
+          super
+        if not --@timeToExplode
+          @explode()
       true
 
     renderShadow: (board) ->
@@ -1041,7 +1078,7 @@
         gradient.addColorStop(1, 'rgba(32,24,16,1)')
         context.fillStyle = gradient
         context.fill()
-      else
+      else if @thrown
         context.beginPath()
         context.globalAlpha = 0.2
         context.arc x, y, 3, 0, TAU
@@ -1078,7 +1115,7 @@
           context.fillStyle = 'rgba(' + r + ',' + g + ',' + b + ',' + opacity + ')'
           context.fill()
         context.restore()
-      else
+      else if @thrown
         context.beginPath()
         context.arc baseX, baseY / 2 - @z - 3, 3, 0, TAU
         context.fillStyle = '#ab9'
@@ -1087,9 +1124,7 @@
         context.stroke()
       return
 
-    timeToThrow: ->
-      elapsed = new Date().getTime() - @pulledPin
-      500 - elapsed
+    whenTimeToThrow: (@throwCb) ->
 
   class Grenades extends Weapon
     shots: '∞'
@@ -1100,14 +1135,12 @@
       @ready = false
       return
 
-    fired: =>
+    fired: ->
       return unless @firing
-      grenade = @grenade
-      wait = grenade.timeToThrow()
-      if wait > 0
-        setTimeout @fired, wait
-      else
-        grenade.throwAt @closest()
+      return if @grenade.throwCb
+      @grenade.whenTimeToThrow =>
+        @grenade.throwAt @closest()
+        @grenade = null
         @firing = false
         @ready = true
       return
@@ -1160,7 +1193,7 @@
         read pick("oh wow", "got " + hitCount, "mega kill", hitCount + " for 1", "haha, amazing")
       fire.load()
       fire.play()
-      @disable 800, =>
+      @disable 24, =>
         @reload() unless @shots
       return
 
@@ -1169,7 +1202,7 @@
       read pick("reload quick", "quick", "hurry", "c'mon", "let's go", "faster", "oh man")
       reload.load()
       reload.play()
-      @disable 3000, => @shots = 6
+      @disable 90, => @shots = 6
       return
 
     render: (board) ->
@@ -1681,6 +1714,11 @@
       context.fill()
       context.restore()
       return
+
+    nextMove: ->
+      ret = super
+      @weapon.nextMove()
+      ret
 
   class Structure extends Agent
     @register = register

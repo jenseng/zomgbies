@@ -49,10 +49,8 @@
       return arguments[floor(rand() * arguments.length)];
     };
     makeObservation = function() {
-      read(pick("this is terrifying", "you're not doing very well", "this is hard to watch", "not bad", "pro tip: kill the zombies", "nicely done", "watch out", "look out", "here they come", "lol", "wow", "haha", "that was amazing", "good job", "gotta be quick", "you've got this", "you're a natural", "does my voice sound weird to you?", "i've got a bad feeling about this", "nice shooting, tex"));
-      return setTimeout(makeObservation, 5000 + 1000 * floor(rand() * 20));
+      return read(pick("this is terrifying", "you're not doing very well", "this is hard to watch", "not bad", "pro tip: kill the zombies", "nicely done", "watch out", "look out", "here they come", "lol", "wow", "haha", "that was amazing", "good job", "gotta be quick", "you've got this", "you're a natural", "does my voice sound weird to you?", "i've got a bad feeling about this", "nice shooting, tex"));
     };
-    setTimeout(makeObservation, 10000);
     normalizeDirection = function(direction) {
       if (direction > PI) {
         direction -= TAU;
@@ -90,7 +88,7 @@
       })(this.types[name], args, function(){});
     };
     Zomgbie = function($canvas, options) {
-      return new Game($canvas, options).run();
+      return new Game($canvas, options).start();
     };
     Zomgbie.registerExtension = function(type, name, constructor) {
       if (type === 'weapon') {
@@ -106,6 +104,8 @@
         this.run = __bind(this.run, this);
         this.keyUp = __bind(this.keyUp, this);
         this.keyDown = __bind(this.keyDown, this);
+        this.start = __bind(this.start, this);
+        this.pause = __bind(this.pause, this);
         config = this.config = $.extend({}, this.config, options, true);
         this.board = new Board(this, $canvas, 2400, 2400);
         this.agents = new AgentList(this);
@@ -150,16 +150,25 @@
         $doc = $(document);
         this.$canvas.on('mousemove', function(e) {
           var _ref;
+          if (!_this.running) {
+            return;
+          }
           _this.mouseTarget.set(_this.board.x + e.clientX, _this.board.y + e.clientY * 2);
           return (_ref = _this.player) != null ? _ref.mouseMove() : void 0;
         });
         this.$canvas.on('mousedown', function(e) {
           var _ref;
+          if (!_this.running) {
+            return;
+          }
           _this.mouseTarget.set(_this.board.x + e.clientX, _this.board.y + e.clientY * 2);
           return (_ref = _this.player) != null ? _ref.mouseDown() : void 0;
         });
         this.$canvas.on('mouseup', function(e) {
           var _ref;
+          if (!_this.running) {
+            return;
+          }
           _this.mouseTarget.set(_this.board.x + e.clientX, _this.board.y + e.clientY * 2);
           return (_ref = _this.player) != null ? _ref.mouseUp() : void 0;
         });
@@ -168,21 +177,44 @@
         if (this.config.resize) {
           $(window).on('resize', this.board.resize);
         }
+        $(window).blur(this.pause);
+      };
+
+      Game.prototype.pause = function() {
+        return this.running = false;
+      };
+
+      Game.prototype.start = function() {
+        this.running = true;
+        this.times.nextTick = new Date().getTime();
+        return this.run();
       };
 
       Game.prototype.keyDown = function(e) {
         var key, _ref;
         key = e.which;
-        if ((_ref = this.player) != null) {
-          _ref.keyDown(key);
+        if (this.running) {
+          if (key === 27) {
+            this.pause();
+          } else {
+            if ((_ref = this.player) != null) {
+              _ref.keyDown(key);
+            }
+          }
+        } else {
+          if (key === 27 || key === 13 || key === 64) {
+            this.start();
+          }
         }
       };
 
       Game.prototype.keyUp = function(e) {
         var key, _ref;
         key = e.which;
-        if ((_ref = this.player) != null) {
-          _ref.keyUp(key);
+        if (this.running) {
+          if ((_ref = this.player) != null) {
+            _ref.keyUp(key);
+          }
         }
       };
 
@@ -199,11 +231,14 @@
       };
 
       Game.prototype.run = function() {
-        var _base;
+        var now, _base;
         if ((_base = this.times).nextTick == null) {
           _base.nextTick = this.times.started = new Date().getTime();
         }
         this.times.nextTick += this.tickTime;
+        if (750 * rand() < 1) {
+          makeObservation();
+        }
         this.time('run', function() {
           this.maybeAddZombies();
           this.agents.move();
@@ -220,7 +255,13 @@
         if (this.pursuitThreshold > this.config.pursuitThreshold) {
           this.setPursuitThreshold(this.pursuitThreshold - 2);
         }
-        setTimeout(this.run, this.times.nextTick - new Date().getTime());
+        now = new Date().getTime();
+        if (this.times.nextTick < now) {
+          this.times.nextTick = now;
+        }
+        if (this.running) {
+          setTimeout(this.run, this.times.nextTick - now);
+        }
       };
 
       Game.prototype.addAllZombies = function() {
@@ -383,6 +424,15 @@
             arg2 = arg[_j];
             arg2.render(this);
           }
+        }
+        if (!this.game.running) {
+          this.context.fillStyle = 'rgba(128,0,0,0.75)';
+          this.context.fillRect(0, 0, this.width, this.height);
+          this.context.font = "bold 50px monospace";
+          this.context.textBaseline = "top";
+          this.context.fillStyle = '#fff';
+          this.context.strokeStyle = '#400';
+          this.game.stats.renderText(this, "PAUSED", 75, "center", "center");
         }
       };
 
@@ -939,6 +989,7 @@
       function Weapon(game, player) {
         this.game = game;
         this.player = player;
+        this.closest = __bind(this.closest, this);
       }
 
       Weapon.register = register;
@@ -948,14 +999,9 @@
       Weapon.prototype.ready = true;
 
       Weapon.prototype.disable = function(time, callback) {
-        var _this = this;
+        this.disableTime = time;
+        this.disableCallback = callback;
         this.ready = false;
-        setTimeout(function() {
-          if (_this.player.alive) {
-            _this.ready = true;
-          }
-          return callback.call(_this);
-        }, time);
       };
 
       Weapon.prototype.closest = function() {
@@ -967,6 +1013,14 @@
             return agent;
           }
         }
+      };
+
+      Weapon.prototype.nextMove = function() {
+        if (this.disableTime && !--this.disableTime) {
+          this.disableCallback();
+          this.ready = true;
+        }
+        return true;
       };
 
       Weapon.prototype.render = function() {};
@@ -1063,11 +1117,10 @@
         this.explode = __bind(this.explode, this);
         var pin;
         Grenade.__super__.constructor.apply(this, arguments);
-        this.pulledPin = new Date().getTime();
         pin = this.sounds.pin;
         pin.load();
         pin.play();
-        setTimeout(this.explode, this.timeToExplode);
+        this.agents.push(this);
       }
 
       Grenade.prototype.sounds = {
@@ -1076,7 +1129,9 @@
         explode: $('<audio src="audio/explode.mp3" preload="auto"></audio>')[0]
       };
 
-      Grenade.prototype.timeToExplode = 1500;
+      Grenade.prototype.timeToExplode = 45;
+
+      Grenade.prototype.timeToThrow = 15;
 
       Grenade.prototype.trackable = true;
 
@@ -1104,10 +1159,9 @@
         startOffset = player.size / 2;
         this.thrown = true;
         this.zRest = false;
-        this.agents.push(this);
         if (target) {
           ogTarget = target;
-          target = target.projectedLocation(this.timeToExplode + this.pulledPin - new Date().getTime());
+          target = target.projectedLocation(this.timeToExplode * this.game.tickTime);
           distX = target.x - x;
           distY = target.y - y;
           dist = max(hypotenuse(distX, distY) - startOffset, 1);
@@ -1210,7 +1264,16 @@
           }
           this.animationTime--;
         } else {
-          Grenade.__super__.nextMove.apply(this, arguments);
+          if (!this.thrown && (!this.timeToThrow || !--this.timeToThrow) && this.throwCb) {
+            this.throwCb();
+            this.thrown = true;
+          }
+          if (this.thrown) {
+            Grenade.__super__.nextMove.apply(this, arguments);
+          }
+          if (!--this.timeToExplode) {
+            this.explode();
+          }
         }
         return true;
       };
@@ -1236,7 +1299,7 @@
           gradient.addColorStop(1, 'rgba(32,24,16,1)');
           context.fillStyle = gradient;
           context.fill();
-        } else {
+        } else if (this.thrown) {
           context.beginPath();
           context.globalAlpha = 0.2;
           context.arc(x, y, 3, 0, TAU);
@@ -1281,7 +1344,7 @@
             context.fill();
           }
           context.restore();
-        } else {
+        } else if (this.thrown) {
           context.beginPath();
           context.arc(baseX, baseY / 2 - this.z - 3, 3, 0, TAU);
           context.fillStyle = '#ab9';
@@ -1291,10 +1354,8 @@
         }
       };
 
-      Grenade.prototype.timeToThrow = function() {
-        var elapsed;
-        elapsed = new Date().getTime() - this.pulledPin;
-        return 500 - elapsed;
+      Grenade.prototype.whenTimeToThrow = function(throwCb) {
+        this.throwCb = throwCb;
       };
 
       return Grenade;
@@ -1304,7 +1365,6 @@
       __extends(Grenades, _super);
 
       function Grenades() {
-        this.fired = __bind(this.fired, this);
         _ref = Grenades.__super__.constructor.apply(this, arguments);
         return _ref;
       }
@@ -1318,19 +1378,19 @@
       };
 
       Grenades.prototype.fired = function() {
-        var grenade, wait;
+        var _this = this;
         if (!this.firing) {
           return;
         }
-        grenade = this.grenade;
-        wait = grenade.timeToThrow();
-        if (wait > 0) {
-          setTimeout(this.fired, wait);
-        } else {
-          grenade.throwAt(this.closest());
-          this.firing = false;
-          this.ready = true;
+        if (this.grenade.throwCb) {
+          return;
         }
+        this.grenade.whenTimeToThrow(function() {
+          _this.grenade.throwAt(_this.closest());
+          _this.grenade = null;
+          _this.firing = false;
+          return _this.ready = true;
+        });
       };
 
       return Grenades;
@@ -1415,7 +1475,7 @@
         }
         fire.load();
         fire.play();
-        this.disable(800, function() {
+        this.disable(24, function() {
           if (!_this.shots) {
             return _this.reload();
           }
@@ -1429,7 +1489,7 @@
         read(pick("reload quick", "quick", "hurry", "c'mon", "let's go", "faster", "oh man"));
         reload.load();
         reload.play();
-        this.disable(3000, function() {
+        this.disable(90, function() {
           return _this.shots = 6;
         });
       };
@@ -2088,6 +2148,13 @@
         context.fillStyle = '#ffe';
         context.fill();
         context.restore();
+      };
+
+      Player.prototype.nextMove = function() {
+        var ret;
+        ret = Player.__super__.nextMove.apply(this, arguments);
+        this.weapon.nextMove();
+        return ret;
       };
 
       return Player;
