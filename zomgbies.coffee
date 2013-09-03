@@ -129,20 +129,7 @@
     addListeners: ->
       $doc = $(document)
 
-      @$canvas.on 'mousemove', (e) =>
-        return unless @running
-        @mouseTarget.set @board.x + e.clientX, @board.y + e.clientY * 2
-        @player?.mouseMove()
-
-      @$canvas.on 'mousedown', (e) =>
-        return unless @running
-        @mouseTarget.set @board.x + e.clientX, @board.y + e.clientY * 2
-        @player?.mouseDown()
-
-      @$canvas.on 'mouseup', (e) =>
-        return unless @running
-        @mouseTarget.set @board.x + e.clientX, @board.y + e.clientY * 2
-        @player?.mouseUp()
+      @$canvas.on 'mousemove mousedown mouseup', @mouseAction
 
       $doc.on 'keydown', @keyDown
       $doc.on 'keyup', @keyUp
@@ -153,6 +140,11 @@
       $(window).blur @pause
       $(window).focus @start
       return
+
+    mouseAction: (e) =>
+      return unless @running
+      @mouseTarget.set @board.x + e.clientX, @board.y + e.clientY * 2
+      @player?[e.type]()
 
     pause: =>
       @$canvas.css(cursor: 'default')
@@ -227,18 +219,21 @@
       maxZombies = config.maxZombies
       if numZombies < maxZombies and rand() * 80 < 1
         toAdd = min(ceil(rand() * config.maxSpawnsPerTick), maxZombies - numZombies)
-        if rand() < 0.2
-          if toAdd is 1
-            read if numZombies is 0 then "zombie" else pick("another zombie", "yet another", "zombie", "walker")
-          else if (toAdd < 4)
-            read pick("zombies", "here they come", "here come a couple", "yikes")
-          else
-            read pick("uh oh", "oh no", "damn", "oh crap a lot of zombies", "here comes the horde", "whoa that's a lot", "they just keep coming")
+        @announceZombies(toAdd)
         for i in [0...toAdd]
           zombie = new Zombie(this, @player)
           zombie.randomEdgeStart @board
           @agents.push zombie
       return
+
+    announceZombies: (toAdd) ->
+      if rand() < 0.2
+        if toAdd is 1
+          read if numZombies is 0 then "zombie" else pick("another zombie", "yet another", "zombie", "walker")
+        else if (toAdd < 4)
+          read pick("zombies", "here they come", "here come a couple", "yikes")
+        else
+          read pick("uh oh", "oh no", "damn", "oh crap a lot of zombies", "here comes the horde", "whoa that's a lot", "they just keep coming")
 
     runDelayedActions: ->
       i = 0
@@ -1689,17 +1684,17 @@
       @manualY = if directions.S ^ directions.N then (directions.S or -1) else 0
       return
 
-    mouseDown: ->
+    mousedown: ->
       if @alive and @weapon.ready and not @sleepTime
         @weapon.fire()
       return
 
-    mouseUp: ->
+    mouseup: ->
       if @alive and @weapon.firing and not @sleepTime
         @weapon.fired()
       return
 
-    mouseMove: ->
+    mousemove: ->
       if @manual and not @manualX and not @manualY
         @manual = false
       return
