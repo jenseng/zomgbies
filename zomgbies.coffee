@@ -98,18 +98,22 @@
 
   class Game
     constructor: (@$canvas, options) ->
-      config = @config = $.extend({}, @config, options, true)
+      @config = $.extend({}, @config, options, true)
+      @restart()
+      @addListeners()
 
+    restart: ->
+      config = @config
       @delayedActions = []
-      @board = new Board(this, $canvas, 2400, 2400)
+      @board = new Board(this, @$canvas, 2400, 2400)
       @agents = new AgentList(this)
       @mouseTarget = new MouseTarget(this)
       for [name, args...] in config.structures ? {}
         @agents.push Structure.factory(name, this, args...)
       @stats = new Stats(this)
+      @stats.setStatus "ZOMG! LOOK OUT!", 75
       @player = new Player(this, @mouseTarget)
       @agents.push @player
-      @addListeners $canvas
       @board.items = [@mouseTarget, @agents, @player.weapons..., @stats]
 
       @setPursuitThreshold config.pursuitThreshold
@@ -136,9 +140,14 @@
         @player?.mouseMove()
 
       @$canvas.on 'mousedown', (e) =>
-        return unless @running
-        @mouseTarget.set @board.x + e.clientX, @board.y + e.clientY * 2
-        @player?.mouseDown()
+        if @running
+          @mouseTarget.set @board.x + e.clientX, @board.y + e.clientY * 2
+          if @player?.alive
+            @player?.mouseDown()
+          else
+            @restart()
+        else
+          @start()
 
       @$canvas.on 'mouseup', (e) =>
         return unless @running
@@ -168,10 +177,12 @@
     keyDown: (e) =>
       key = e.which
       if @running
-        if key is 27
+        if key is 27 or key is 80
           @pause()
-        else
+        else if @player?.alive
           @player?.keyDown(key)
+        else if key is 32
+          @restart()
       else
         if key is 27 or key is 13 or key is 32 or key is 80
           @start()
@@ -257,7 +268,7 @@
           len--
 
     addBinoculars: ->
-      @delayedActions.push [300, =>
+      @delayedActions.push [150, =>
         binoculars = new Binoculars
         binoculars.set(@mouseTarget.x, @mouseTarget.y)
         @mouseTarget.listener = binoculars
@@ -350,11 +361,12 @@
       @renderText "PAUSED", 50, "center", "center"
 
     renderText: (text, fontSize, xAlign, yAlign) ->
+      text = text.toUpperCase()
       canvas = @canvas
       width = canvas.width
       context = @context
       lines = text.split("\n")
-      context.font = "bold #{fontSize}px monospace"
+      context.font = "bold #{fontSize}px \"Arial Black\", Arial, sans-serif"
       context.lineWidth = max(1.5, fontSize / 18)
       lineHeight = fontSize * 1.25
 
@@ -444,9 +456,7 @@
       @hitRatio = @totalHitShots / @totalShots
       return
 
-    setStatus: (@status) ->
-      @statusTime = @maxStatusTime
-      return
+    setStatus: (@status, @statusTime = @maxStatusTime) ->
 
     renderDebug: (board) ->
       game = @game
@@ -481,8 +491,8 @@
       context.save()
       context.textBaseline = "top"
       context.globalAlpha = 0.8
-      context.fillStyle = if player.alive then '#d44' else '#888'
-      context.strokeStyle = if player.alive then '#400' else '#000'
+      context.fillStyle = if player.alive then '#d44' else '#874'
+      context.strokeStyle = if player.alive then '#100' else '#110'
       @renderDebug board if @config.debug
       board.renderText """
           kills: #{@kills}

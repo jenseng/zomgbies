@@ -99,16 +99,22 @@
     };
     Game = (function() {
       function Game($canvas, options) {
-        var args, config, name, _i, _len, _ref, _ref1, _ref2;
         this.$canvas = $canvas;
         this.run = __bind(this.run, this);
         this.keyUp = __bind(this.keyUp, this);
         this.keyDown = __bind(this.keyDown, this);
         this.start = __bind(this.start, this);
         this.pause = __bind(this.pause, this);
-        config = this.config = $.extend({}, this.config, options, true);
+        this.config = $.extend({}, this.config, options, true);
+        this.restart();
+        this.addListeners();
+      }
+
+      Game.prototype.restart = function() {
+        var args, config, name, _i, _len, _ref, _ref1, _ref2;
+        config = this.config;
         this.delayedActions = [];
-        this.board = new Board(this, $canvas, 2400, 2400);
+        this.board = new Board(this, this.$canvas, 2400, 2400);
         this.agents = new AgentList(this);
         this.mouseTarget = new MouseTarget(this);
         _ref1 = (_ref = config.structures) != null ? _ref : {};
@@ -117,18 +123,18 @@
           this.agents.push(Structure.factory.apply(Structure, [name, this].concat(__slice.call(args))));
         }
         this.stats = new Stats(this);
+        this.stats.setStatus("ZOMG! LOOK OUT!", 75);
         this.player = new Player(this, this.mouseTarget);
         this.agents.push(this.player);
-        this.addListeners($canvas);
         this.board.items = [this.mouseTarget, this.agents].concat(__slice.call(this.player.weapons), [this.stats]);
         this.setPursuitThreshold(config.pursuitThreshold);
         this.addInitialZombies();
         this.tickTime = floor(1000 / config.ticksPerSecond);
-        this.times = {
+        return this.times = {
           run: [],
           render: []
         };
-      }
+      };
 
       Game.prototype.config = {
         ticksPerSecond: 30,
@@ -154,12 +160,17 @@
           return (_ref = _this.player) != null ? _ref.mouseMove() : void 0;
         });
         this.$canvas.on('mousedown', function(e) {
-          var _ref;
-          if (!_this.running) {
-            return;
+          var _ref, _ref1;
+          if (_this.running) {
+            _this.mouseTarget.set(_this.board.x + e.clientX, _this.board.y + e.clientY * 2);
+            if ((_ref = _this.player) != null ? _ref.alive : void 0) {
+              return (_ref1 = _this.player) != null ? _ref1.mouseDown() : void 0;
+            } else {
+              return _this.restart();
+            }
+          } else {
+            return _this.start();
           }
-          _this.mouseTarget.set(_this.board.x + e.clientX, _this.board.y + e.clientY * 2);
-          return (_ref = _this.player) != null ? _ref.mouseDown() : void 0;
         });
         this.$canvas.on('mouseup', function(e) {
           var _ref;
@@ -195,15 +206,17 @@
       };
 
       Game.prototype.keyDown = function(e) {
-        var key, _ref;
+        var key, _ref, _ref1;
         key = e.which;
         if (this.running) {
-          if (key === 27) {
+          if (key === 27 || key === 80) {
             this.pause();
-          } else {
-            if ((_ref = this.player) != null) {
-              _ref.keyDown(key);
+          } else if ((_ref = this.player) != null ? _ref.alive : void 0) {
+            if ((_ref1 = this.player) != null) {
+              _ref1.keyDown(key);
             }
+          } else if (key === 32) {
+            this.restart();
           }
         } else {
           if (key === 27 || key === 13 || key === 32 || key === 80) {
@@ -324,7 +337,7 @@
       Game.prototype.addBinoculars = function() {
         var _this = this;
         return this.delayedActions.push([
-          300, function() {
+          150, function() {
             var binoculars;
             binoculars = new Binoculars;
             binoculars.set(_this.mouseTarget.x, _this.mouseTarget.y);
@@ -459,11 +472,12 @@
 
       Board.prototype.renderText = function(text, fontSize, xAlign, yAlign) {
         var canvas, context, height, i, line, lineHeight, lines, metrics, newLines, width, x, y, _i, _len;
+        text = text.toUpperCase();
         canvas = this.canvas;
         width = canvas.width;
         context = this.context;
         lines = text.split("\n");
-        context.font = "bold " + fontSize + "px monospace";
+        context.font = "bold " + fontSize + "px \"Arial Black\", Arial, sans-serif";
         context.lineWidth = max(1.5, fontSize / 18);
         lineHeight = fontSize * 1.25;
         i = 0;
@@ -585,9 +599,9 @@
         this.hitRatio = this.totalHitShots / this.totalShots;
       };
 
-      Stats.prototype.setStatus = function(status) {
+      Stats.prototype.setStatus = function(status, statusTime) {
         this.status = status;
-        this.statusTime = this.maxStatusTime;
+        this.statusTime = statusTime != null ? statusTime : this.maxStatusTime;
       };
 
       Stats.prototype.renderDebug = function(board) {
@@ -613,8 +627,8 @@
         context.save();
         context.textBaseline = "top";
         context.globalAlpha = 0.8;
-        context.fillStyle = player.alive ? '#d44' : '#888';
-        context.strokeStyle = player.alive ? '#400' : '#000';
+        context.fillStyle = player.alive ? '#d44' : '#874';
+        context.strokeStyle = player.alive ? '#100' : '#110';
         if (this.config.debug) {
           this.renderDebug(board);
         }
