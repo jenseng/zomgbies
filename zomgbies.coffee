@@ -113,6 +113,7 @@
       @board.items = [@mouseTarget, @agents, @player.weapons..., @stats]
 
       @setPursuitThreshold config.pursuitThreshold
+      @addInitialZombies()
       @tickTime = floor(1000 / config.ticksPerSecond)
       @times = run: [], render: []
 
@@ -213,10 +214,12 @@
       setTimeout @run, @times.nextTick - now if @running
       return
 
-    addAllZombies: ->
-      for i in [0...@config.maxZombies]
-        zombie = new Zombie(this, @mouseTarget)
+    addInitialZombies: ->
+      for i in [0...floor(@config.maxZombies/5)]
+        zombie = new Zombie(this, @player)
         zombie.randomStart @board
+        while abs(zombie.x - @player.x) < @pursuitThreshold or abs(zombie.y + @player.y) < @pursuitThreshold
+          zombie.randomStart @board
         @agents.push zombie
       return
 
@@ -874,8 +877,8 @@
 
     nextMove: ->
       if @disableTime and not --@disableTime
-        @disableCallback()
         @ready = true
+        @disableCallback()
       true
 
     render: ->
@@ -1173,10 +1176,14 @@
     shots: '∞'
 
   class Colt extends Weapon
+    constructor: ->
+      super
+      @reload()
+
     sounds:
       fire: $('<audio src="audio/colt.mp3" preload="auto"></audio>')[0]
       reload: $('<audio src="audio/reload.m4a" preload="auto"></audio>')[0]
-    shots: 6
+    shots: 0
     cache: '∞'
     maxVisibleTime: 5
 
@@ -1713,9 +1720,9 @@
       else if @weapon.ready and not @sleepTime
         if key is 32
           @weapon.fire()
-        else if key is 188
+        else if key is 188 or key is 33
           @prevWeapon()
-        else if key is 190
+        else if key is 190 or key is 34 or key is 13
           @nextWeapon()
       return
 

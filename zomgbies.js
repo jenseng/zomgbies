@@ -6,7 +6,7 @@
     __extends = function(child, parent) { for (var key in parent) { if (__hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; };
 
   (function($) {
-    var $status, AGENT_HEIGHT, Agent, AgentList, Binoculars, Board, Colt, FarmHouse, Fence, Game, Grenade, Grenades, HALF_PI, Item, MotorHome, MouseTarget, PI, Player, QUARTER_PI, RotatedRectangleStructure, RotatedSquareStructure, SPRITE_HEIGHT, SPRITE_WIDTH, SQRT_2, Stats, Structure, Sword, TAU, TEN_DEGREES, Tower, Tracker, Weapon, Zombie, Zomgbie, abs, atan2, ceil, cos, factory, floor, gravity, hypotenuse, lastRead, makeObservation, max, min, normalizeDirection, pick, pixelsPerMeter, pow, rand, read, register, round, sectorSize, sin, sqrt, sum, _ref, _ref1, _ref2, _ref3, _ref4, _ref5, _ref6;
+    var $status, AGENT_HEIGHT, Agent, AgentList, Binoculars, Board, Colt, FarmHouse, Fence, Game, Grenade, Grenades, HALF_PI, Item, MotorHome, MouseTarget, PI, Player, QUARTER_PI, RotatedRectangleStructure, RotatedSquareStructure, SPRITE_HEIGHT, SPRITE_WIDTH, SQRT_2, Stats, Structure, Sword, TAU, TEN_DEGREES, Tower, Tracker, Weapon, Zombie, Zomgbie, abs, atan2, ceil, cos, factory, floor, gravity, hypotenuse, lastRead, makeObservation, max, min, normalizeDirection, pick, pixelsPerMeter, pow, rand, read, register, round, sectorSize, sin, sqrt, sum, _ref, _ref1, _ref2, _ref3, _ref4, _ref5;
     sectorSize = 36;
     pixelsPerMeter = 36;
     gravity = 9.8 * pixelsPerMeter;
@@ -122,6 +122,7 @@
         this.addListeners($canvas);
         this.board.items = [this.mouseTarget, this.agents].concat(__slice.call(this.player.weapons), [this.stats]);
         this.setPursuitThreshold(config.pursuitThreshold);
+        this.addInitialZombies();
         this.tickTime = floor(1000 / config.ticksPerSecond);
         this.times = {
           run: [],
@@ -264,11 +265,14 @@
         }
       };
 
-      Game.prototype.addAllZombies = function() {
+      Game.prototype.addInitialZombies = function() {
         var i, zombie, _i, _ref;
-        for (i = _i = 0, _ref = this.config.maxZombies; 0 <= _ref ? _i < _ref : _i > _ref; i = 0 <= _ref ? ++_i : --_i) {
-          zombie = new Zombie(this, this.mouseTarget);
+        for (i = _i = 0, _ref = floor(this.config.maxZombies / 5); 0 <= _ref ? _i < _ref : _i > _ref; i = 0 <= _ref ? ++_i : --_i) {
+          zombie = new Zombie(this, this.player);
           zombie.randomStart(this.board);
+          while (abs(zombie.x - this.player.x) < this.pursuitThreshold || abs(zombie.y + this.player.y) < this.pursuitThreshold) {
+            zombie.randomStart(this.board);
+          }
           this.agents.push(zombie);
         }
       };
@@ -1056,8 +1060,8 @@
 
       Weapon.prototype.nextMove = function() {
         if (this.disableTime && !--this.disableTime) {
-          this.disableCallback();
           this.ready = true;
+          this.disableCallback();
         }
         return true;
       };
@@ -1452,8 +1456,8 @@
       __extends(Colt, _super);
 
       function Colt() {
-        _ref2 = Colt.__super__.constructor.apply(this, arguments);
-        return _ref2;
+        Colt.__super__.constructor.apply(this, arguments);
+        this.reload();
       }
 
       Colt.prototype.sounds = {
@@ -1461,7 +1465,7 @@
         reload: $('<audio src="audio/reload.m4a" preload="auto"></audio>')[0]
       };
 
-      Colt.prototype.shots = 6;
+      Colt.prototype.shots = 0;
 
       Colt.prototype.cache = '∞';
 
@@ -1723,10 +1727,10 @@
       };
 
       Tracker.prototype.targetVisible = function() {
-        var distX, distY, game, target, threshold, _ref3, _ref4;
+        var distX, distY, game, target, threshold, _ref2, _ref3;
         target = this.target;
         game = this.game;
-        threshold = (_ref3 = this.pursuitThreshold) != null ? _ref3 : game.pursuitThreshold;
+        threshold = (_ref2 = this.pursuitThreshold) != null ? _ref2 : game.pursuitThreshold;
         distX = this.distX;
         distY = this.distY;
         if (!target || target.alive === false) {
@@ -1738,7 +1742,7 @@
         if (distY > threshold || distY < -threshold) {
           return false;
         }
-        return this.distSquared < ((_ref4 = this.pursuitThresholdSquared) != null ? _ref4 : game.pursuitThresholdSquared);
+        return this.distSquared < ((_ref3 = this.pursuitThresholdSquared) != null ? _ref3 : game.pursuitThresholdSquared);
       };
 
       Tracker.prototype.distract = function(fakeTarget, distractTime, distractRadius) {
@@ -2014,10 +2018,10 @@
       MouseTarget.prototype.caughtBy = function() {};
 
       MouseTarget.prototype.set = function(x, y) {
-        var _ref3;
+        var _ref2;
         this.x = x;
         this.y = y;
-        return (_ref3 = this.listener) != null ? _ref3.set(this.x, this.y) : void 0;
+        return (_ref2 = this.listener) != null ? _ref2.set(this.x, this.y) : void 0;
       };
 
       MouseTarget.prototype.render = function() {};
@@ -2057,11 +2061,11 @@
         this.speedSquared = this.speed * this.speed;
         this.directionKeysPressed = {};
         this.weapons = (function() {
-          var _i, _len, _ref3, _results;
-          _ref3 = game.config.weapons;
+          var _i, _len, _ref2, _results;
+          _ref2 = game.config.weapons;
           _results = [];
-          for (_i = 0, _len = _ref3.length; _i < _len; _i++) {
-            name = _ref3[_i];
+          for (_i = 0, _len = _ref2.length; _i < _len; _i++) {
+            name = _ref2[_i];
             _results.push(Weapon.factory(name, game, this));
           }
           return _results;
@@ -2163,9 +2167,9 @@
         } else if (this.weapon.ready && !this.sleepTime) {
           if (key === 32) {
             this.weapon.fire();
-          } else if (key === 188) {
+          } else if (key === 188 || key === 33) {
             this.prevWeapon();
-          } else if (key === 190) {
+          } else if (key === 190 || key === 34 || key === 13) {
             this.nextWeapon();
           }
         }
@@ -2272,8 +2276,8 @@
       __extends(RotatedSquareStructure, _super);
 
       function RotatedSquareStructure() {
-        _ref3 = RotatedSquareStructure.__super__.constructor.apply(this, arguments);
-        return _ref3;
+        _ref2 = RotatedSquareStructure.__super__.constructor.apply(this, arguments);
+        return _ref2;
       }
 
       RotatedSquareStructure.prototype.checkCollision = function(otherX, otherY, otherSize) {
@@ -2310,8 +2314,8 @@
       __extends(FarmHouse, _super);
 
       function FarmHouse() {
-        _ref4 = FarmHouse.__super__.constructor.apply(this, arguments);
-        return _ref4;
+        _ref3 = FarmHouse.__super__.constructor.apply(this, arguments);
+        return _ref3;
       }
 
       FarmHouse.prototype.size = 434;
@@ -2385,8 +2389,8 @@
       __extends(MotorHome, _super);
 
       function MotorHome() {
-        _ref5 = MotorHome.__super__.constructor.apply(this, arguments);
-        return _ref5;
+        _ref4 = MotorHome.__super__.constructor.apply(this, arguments);
+        return _ref4;
       }
 
       MotorHome.prototype.imageXOffset = 123;
@@ -2410,8 +2414,8 @@
       __extends(Tower, _super);
 
       function Tower() {
-        _ref6 = Tower.__super__.constructor.apply(this, arguments);
-        return _ref6;
+        _ref5 = Tower.__super__.constructor.apply(this, arguments);
+        return _ref5;
       }
 
       Tower.prototype.size = 74;
