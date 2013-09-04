@@ -99,6 +99,7 @@
     };
     Game = (function() {
       function Game($canvas, options) {
+        var _this = this;
         this.$canvas = $canvas;
         this.run = __bind(this.run, this);
         this.keyUp = __bind(this.keyUp, this);
@@ -108,6 +109,18 @@
         this.config = $.extend({}, this.config, options, true);
         this.restart();
         this.addListeners();
+        this.sounds = {
+          moans: $('<audio src="audio/horde.mp3" preload="auto"></audio>')[0],
+          kills: [$('<audio src="audio/zombiehurt.mp3" preload="auto"></audio>')[0], $('<audio src="audio/zombiehurt2.mp3" preload="auto"></audio>')[0]]
+        };
+        $(this.sounds.moans).on('ended', function() {
+          if (!_this.running) {
+            return;
+          }
+          _this.sounds.moans.currentTime = 0;
+          return _this.sounds.moans.play();
+        });
+        this.sounds.moans.play();
       }
 
       Game.prototype.restart = function() {
@@ -190,6 +203,7 @@
       };
 
       Game.prototype.pause = function() {
+        this.sounds.moans.pause();
         this.$canvas.css({
           cursor: 'default'
         });
@@ -197,6 +211,8 @@
       };
 
       Game.prototype.start = function() {
+        this.sounds.moans.load();
+        this.sounds.moans.play();
         this.$canvas.css({
           cursor: 'none'
         });
@@ -585,6 +601,12 @@
       Stats.prototype.maxStatusTime = 150;
 
       Stats.prototype.addShotInfo = function(kills) {
+        var sound;
+        if (kills) {
+          sound = pick.apply(null, this.game.sounds.kills);
+          sound.load();
+          sound.play();
+        }
         this.totalShots++;
         if (kills > 1 && kills > this.maxCombo) {
           this.maxCombo = kills;

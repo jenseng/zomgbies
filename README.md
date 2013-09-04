@@ -15,8 +15,6 @@ ping-ponging
     have weird rebound tangents)
   * ability to land on a item on target (structure, tracker), set zRest
   * chance to knock over zombie if just grazed (not full on collision)
-* sounds
-  * zombies
 * animations
   * better grenade
   * gunshot

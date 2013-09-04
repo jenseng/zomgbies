@@ -101,6 +101,17 @@
       @config = $.extend({}, @config, options, true)
       @restart()
       @addListeners()
+      @sounds =
+        moans: $('<audio src="audio/horde.mp3" preload="auto"></audio>')[0]
+        kills: [
+          $('<audio src="audio/zombiehurt.mp3" preload="auto"></audio>')[0],
+          $('<audio src="audio/zombiehurt2.mp3" preload="auto"></audio>')[0]
+        ]
+      $(@sounds.moans).on 'ended', =>
+        return unless @running
+        @sounds.moans.currentTime = 0
+        @sounds.moans.play()
+      @sounds.moans.play()
 
     restart: ->
       config = @config
@@ -165,10 +176,13 @@
       return
 
     pause: =>
+      @sounds.moans.pause()
       @$canvas.css(cursor: 'default')
       @running = false
 
     start: =>
+      @sounds.moans.load()
+      @sounds.moans.play()
       @$canvas.css(cursor: 'none')
       @running = true
       @times.nextTick = new Date().getTime()
@@ -445,6 +459,11 @@
     maxStatusTime: 150
 
     addShotInfo: (kills) ->
+      # TODO: this should go somewhere else
+      if kills
+        sound = pick(@game.sounds.kills...)
+        sound.load()
+        sound.play()
       @totalShots++
       if kills > 1 and kills > @maxCombo
         @maxCombo = kills
