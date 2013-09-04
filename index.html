@@ -20,6 +20,12 @@
     <canvas></canvas>
     <script src="zomgbies.js"></script>
     <script>
+      /***
+       *
+       * Ohai, fork me on github!
+       * https://github.com/jenseng/zomgbies
+       *
+       ***/
       var domainMatch = /domain=([^&]+)/.exec(location.search);
       if (domainMatch && location.hostname.indexOf("." + domainMatch[1]) >= 0)
         document.domain = decodeURIComponent(domainMatch[1]);

@@ -1,3 +1,12 @@
+###
+# zomgbies!
+# 
+# a little game by jon jensen
+#
+# homepage: https://github.com/jenseng/zomgbies
+# license: MIT, see https://github.com/jenseng/zomgbies/blob/master/LICENSE.txt
+###
+
 (($) ->
 
   sectorSize = 36
