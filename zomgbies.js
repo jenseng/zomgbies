@@ -120,8 +120,8 @@
         this.restart();
         this.addListeners();
         this.sounds = {
-          moans: $('<audio src="audio/horde.mp3" preload="auto"></audio>')[0],
-          kills: [$('<audio src="audio/zombiehurt.mp3" preload="auto"></audio>')[0], $('<audio src="audio/zombiehurt2.mp3" preload="auto"></audio>')[0]]
+          moans: $('<audio preload="auto"><source src="audio/horde.mp3" type="audio/mpeg"><source src="audio/horde.ogg" type="audio/ogg"></audio>')[0],
+          kills: [$('<audio preload="auto"><source src="audio/zombiehurt.mp3" type="audio/mpeg"><source src="audio/zombiehurt.ogg" type="audio/ogg"><</audio>')[0], $('<audio preload="auto"><source src="audio/zombiehurt2.mp3" type="audio/mpeg"><source src="audio/zombiehurt2.ogg" type="audio/ogg"><</audio>')[0]]
         };
         $(this.sounds.moans).on('ended', function() {
           if (!_this.running) {
@@ -1218,9 +1218,9 @@
       }
 
       Grenade.prototype.sounds = {
-        pin: $('<audio src="audio/pin.mp3" preload="auto"></audio>')[0],
-        hit: $('<audio src="audio/grenadehit.m4a" preload="auto"></audio>')[0],
-        explode: $('<audio src="audio/explode.mp3" preload="auto"></audio>')[0]
+        pin: $('<audio preload="auto"><source src="audio/pin.mp3" type="audio/mpeg"><source src="audio/pin.ogg" type="audio/ogg"></audio>')[0],
+        hit: $('<audio preload="auto"><source src="audio/grenadehit.m4a" type="audio/mp4"><source src="audio/grenadehit.ogg" type="audio/ogg"></audio>')[0],
+        explode: $('<audio preload="auto"><source src="audio/explode.mp3" type="audio/mpeg"><source src="audio/explode.ogg" type="audio/ogg"></audio>')[0]
       };
 
       Grenade.prototype.timeToExplode = 45;
@@ -1512,8 +1512,8 @@
       }
 
       Colt.prototype.sounds = {
-        fire: $('<audio src="audio/colt.mp3" preload="auto"></audio>')[0],
-        reload: $('<audio src="audio/reload.m4a" preload="auto"></audio>')[0]
+        fire: $('<audio preload="auto"><source src="audio/colt.mp3" type="audio/mpeg"><source src="audio/colt.ogg" type="audio/ogg"></audio>')[0],
+        reload: $('<audio preload="auto"><source src="audio/reload.m4a" type="audio/mp4"><source src="audio/reload.ogg" type="audio/ogg"></audio>')[0]
       };
 
       Colt.prototype.shots = 0;
