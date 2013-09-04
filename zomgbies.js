@@ -1589,7 +1589,7 @@
           y -= board.y;
           context.save();
           context.beginPath();
-          context.moveTo(x, y / 2 - 40);
+          context.moveTo(x, y / 2 - 30);
           context.lineTo(x + 600 * cos(direction), (y + 600 * sin(direction)) / 2 - 56);
           context.strokeStyle = '#ccc';
           context.globalAlpha = lastShot.visibleTime / this.maxVisibleTime;

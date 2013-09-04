@@ -1278,7 +1278,7 @@
         y -= board.y
         context.save()
         context.beginPath()
-        context.moveTo(x, y / 2 - 40) # shot fired from 5/9 up player
+        context.moveTo(x, y / 2 - 30)
         context.lineTo(x + 600 * cos(direction), (y + 600 * sin(direction)) / 2 - 56) # end of stroke is 7/9 up (through head of zombies)
         context.strokeStyle = '#ccc'
         context.globalAlpha = lastShot.visibleTime / @maxVisibleTime
