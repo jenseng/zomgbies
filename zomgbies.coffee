@@ -202,6 +202,7 @@
       key = e.which
       if @running
         if key is 27 or key is 80
+          e.preventDefault() # safari y u so dumb? https://bugs.webkit.org/show_bug.cgi?id=78206
           @pause()
         else if @player?.alive
           @player?.keyDown(key)
@@ -209,6 +210,7 @@
           @restart()
       else
         if key is 27 or key is 13 or key is 32 or key is 80
+          e.preventDefault()
           @start()
       return
 

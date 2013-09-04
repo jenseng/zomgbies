@@ -237,6 +237,7 @@
         key = e.which;
         if (this.running) {
           if (key === 27 || key === 80) {
+            e.preventDefault();
             this.pause();
           } else if ((_ref = this.player) != null ? _ref.alive : void 0) {
             if ((_ref1 = this.player) != null) {
@@ -247,6 +248,7 @@
           }
         } else {
           if (key === 27 || key === 13 || key === 32 || key === 80) {
+            e.preventDefault();
             this.start();
           }
         }
