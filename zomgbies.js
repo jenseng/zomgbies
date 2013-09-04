@@ -387,6 +387,8 @@
         this.canvas = $canvas[0];
         this.context = this.canvas.getContext('2d');
         this.resize();
+        this.background = new Image();
+        this.background.src = "images/background.png";
         this.x = this.width / 2 - this.visibleWidth / 2;
         this.y = this.height / 2 - this.visibleHeight / 2;
       }
@@ -543,6 +545,7 @@
           this.canvas.width = this.visibleWidth;
         }
         this.context.clearRect(0, 0, this.width, this.height);
+        this.context.drawImage(this.background, -this.x, 250 - this.y / 2);
         if (this.config.debug) {
           this.renderDebug();
         }
@@ -2446,13 +2449,13 @@
     Fence = (function(_super) {
       __extends(Fence, _super);
 
-      Fence.prototype.size = 293;
+      Fence.prototype.size = 288;
 
-      Fence.prototype.imageXOffset = 147;
+      Fence.prototype.imageXOffset = 144;
 
       Fence.prototype.imageYOffset = 136;
 
-      Fence.prototype.lengthComponent = 281;
+      Fence.prototype.lengthComponent = 276;
 
       Fence.prototype.widthComponent = 12;
 

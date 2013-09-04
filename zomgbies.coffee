@@ -300,6 +300,8 @@
       @canvas = $canvas[0]
       @context = @canvas.getContext('2d')
       @resize()
+      @background = new Image()
+      @background.src = "images/background.png"
       @x = @width / 2 - @visibleWidth / 2
       @y = @height / 2 - @visibleHeight / 2
 
@@ -422,6 +424,7 @@
         @canvas.height = @visibleHeight / 2
         @canvas.width = @visibleWidth
       @context.clearRect 0, 0, @width, @height
+      @context.drawImage @background, -@x, 250 - @y / 2
       @renderDebug() if @config.debug
       for item in @items
         item.render(this)
@@ -1892,10 +1895,10 @@
     imageSrc: "images/tower.png"
 
   class Fence extends RotatedRectangleStructure
-    size: 293
-    imageXOffset: 147
+    size: 288
+    imageXOffset: 144
     imageYOffset: 136
-    lengthComponent: 281
+    lengthComponent: 276
     widthComponent: 12
     imageSrc: "images/fence-se.png"
     constructor: (game, x, y, slope) ->
