@@ -417,8 +417,8 @@
         this.resize();
         this.background = new Image();
         this.background.src = "images/background.png";
-        this.x = this.width / 2 - this.visibleWidth / 2;
-        this.y = this.height / 2 - this.visibleHeight / 2;
+        this.x = round(this.width / 2 - this.visibleWidth / 2);
+        this.y = round(this.height / 2 - this.visibleHeight / 2);
       }
 
       Board.prototype.resize = function() {
@@ -2076,8 +2076,8 @@
         var board;
         this.game = game;
         board = game.board;
-        this.x = board.width / 2;
-        this.y = board.height / 2;
+        this.x = round(board.width / 2);
+        this.y = round(board.height / 2);
       }
 
       MouseTarget.prototype.trackable = true;

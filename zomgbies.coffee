@@ -327,8 +327,8 @@
       @resize()
       @background = new Image()
       @background.src = "images/background.png"
-      @x = @width / 2 - @visibleWidth / 2
-      @y = @height / 2 - @visibleHeight / 2
+      @x = round(@width / 2 - @visibleWidth / 2)
+      @y = round(@height / 2 - @visibleHeight / 2)
 
     resize: =>
       @visibleWidth = @canvas.offsetWidth
@@ -1656,8 +1656,8 @@
     constructor: (game) ->
       @game = game
       board = game.board
-      @x = board.width / 2
-      @y = board.height / 2
+      @x = round(board.width / 2)
+      @y = round(board.height / 2)
 
     trackable: true
     size: 0
