@@ -14,12 +14,15 @@
       }
     </style>
     <meta charset='utf-8'>
-    <script src="http://ajax.googleapis.com/ajax/libs/jquery/2.0.2/jquery.min.js"></script>
+    <script src="//ajax.googleapis.com/ajax/libs/jquery/2.0.2/jquery.min.js"></script>
   </head>
   <body>
     <canvas></canvas>
     <script src="zomgbies.js"></script>
     <script>
+      var domainMatch = /domain=([^&]+)/.exec(location.search);
+      if (domainMatch && location.hostname.indexOf("." + domainMatch[1]) >= 0)
+        document.domain = decodeURIComponent(domainMatch[1]);
       var images = [],
           imageGroup,
           image,
