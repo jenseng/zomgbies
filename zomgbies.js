@@ -117,9 +117,10 @@
           if (!_this.running) {
             return;
           }
-          _this.sounds.moans.currentTime = 0;
+          _this.sounds.moans.load();
           return _this.sounds.moans.play();
         });
+        this.sounds.moans.load();
         this.sounds.moans.play();
       }
 

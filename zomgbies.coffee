@@ -109,8 +109,9 @@
         ]
       $(@sounds.moans).on 'ended', =>
         return unless @running
-        @sounds.moans.currentTime = 0
+        @sounds.moans.load()
         @sounds.moans.play()
+      @sounds.moans.load()
       @sounds.moans.play()
 
     restart: ->
