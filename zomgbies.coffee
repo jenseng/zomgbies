@@ -1351,8 +1351,15 @@
     render: (board) ->
       return unless board.visible(@x, @y, 50, 100, 50)
       context = board.context
-      sprite = @game.config.sprites[@sprite][round(8 + @direction / QUARTER_PI) % 8]
-      sprite = sprite[@step]
+      sprite = @game.config.sprites[@sprite]
+      spriteIndex = (8 + @direction / QUARTER_PI) % 8
+      # don't change sprites unless we're solidly pointing in a new direction
+      if @spriteIndex? and (abs(@spriteIndex - spriteIndex) < 0.9 or abs(8 - (@spriteIndex - spriteIndex)) < 0.9)
+        spriteIndex = @spriteIndex 
+      else
+        spriteIndex = round(spriteIndex) % 8
+      @spriteIndex = spriteIndex
+      sprite = sprite[spriteIndex][@step]
       debugger unless sprite
       decayTime = @decayTime
       maxDecayTime = @maxDecayTime

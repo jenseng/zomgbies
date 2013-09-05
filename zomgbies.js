@@ -1680,13 +1680,20 @@
       };
 
       Tracker.prototype.render = function(board) {
-        var context, decayTime, maxDecayTime, sprite, x, y;
+        var context, decayTime, maxDecayTime, sprite, spriteIndex, x, y;
         if (!board.visible(this.x, this.y, 50, 100, 50)) {
           return;
         }
         context = board.context;
-        sprite = this.game.config.sprites[this.sprite][round(8 + this.direction / QUARTER_PI) % 8];
-        sprite = sprite[this.step];
+        sprite = this.game.config.sprites[this.sprite];
+        spriteIndex = (8 + this.direction / QUARTER_PI) % 8;
+        if ((this.spriteIndex != null) && (abs(this.spriteIndex - spriteIndex) < 0.9 || abs(8 - (this.spriteIndex - spriteIndex)) < 0.9)) {
+          spriteIndex = this.spriteIndex;
+        } else {
+          spriteIndex = round(spriteIndex) % 8;
+        }
+        this.spriteIndex = spriteIndex;
+        sprite = sprite[spriteIndex][this.step];
         if (!sprite) {
           debugger;
         }

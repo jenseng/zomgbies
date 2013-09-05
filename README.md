@@ -7,7 +7,6 @@ A little zombie game written in ~~JavaScript~~ CoffeeScript
 ## TODO
 
 * moar sprites
-  * have soft thresholds for switching directional sprites (so no jitters)
 * better bestMoveFor ... don't give up so quick if strafing, just if
 ping-ponging
 * collision fixes/enhancements
@@ -28,7 +27,6 @@ ping-ponging
   reactive than other). when not retracking, continue current action/path
 * redo run loop and all timing stuff, i.e.
   * decouple render and use requestAnimationFrame (but just for rendering)
-  * no setTimeout except for main run loop
   * all timing/speed/etc. info in terms of ms, not in ticks ... then on
     slow machines we can have a higher nextTick if needed
 * better HUD
