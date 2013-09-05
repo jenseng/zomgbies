@@ -654,7 +654,8 @@
           # 0 / 10 / -10 / 20 / -20 ...
           currMove = @validateMoveFor(agent, currDir, currDist)
           collisions = currMove.collisions
-          if not collisions.length
+          captureTarget = (collisions.length is 1 and collisions[0].agent is agent.target)
+          if not collisions.length or captureTarget
             if j and abs(normalizeDirection(agent.direction - currDir)) > HALF_PI
               # if we're deviating a lot, pause (since we don't want to keep ping ponging)
               if agent isnt player
@@ -664,8 +665,9 @@
               direction: currDir
               x: currMove.x
               y: currMove.y
+              captureTarget
             }
-          else if j is 0 and collisions[0]?.agent?.structure
+          else if j is 0 and collisions[0].agent?.structure
             adjacentStructure = true
           break if adjacentStructure and j >= 16 # 80 deg in either direction TODO: less if closer
         break if adjacentStructure
@@ -1527,12 +1529,9 @@
       game = @game
       if distSquared < minCaptureDist * minCaptureDist # jump to target
         if distSquared < speedSquared
-          @takeStep sqrt(distSquared)
-          @set target.x, target.y
+          @move @optimalDirection, sqrt(distSquared), false # so you can moonwalk :)
         else
           @move @optimalDirection, speed
-        target.caughtBy this
-        @restTime = 20
       else
         # pursue with a slight wobble and variable speed (faster if closer)
         direction = normalizeDirection(@optimalDirection + @wobble(@pursuitWobble))
@@ -1565,12 +1564,15 @@
       @traveled = round(@traveled + dist) % 64
       @step = round(@traveled / 32) % 2
 
-    move: (direction, distance, force = true) ->
+    move: (direction, distance, changeDirection = true) ->
       if frd = @agents.bestMoveFor(this, direction, distance)
-        @direction = frd.direction
+        @direction = frd.direction if changeDirection
         @currentSpeed = frd.distance
         @takeStep(@currentSpeed)
         @set frd.x, frd.y
+        if frd.captureTarget
+          @target.caughtBy this
+          @restTime = 20
       return
 
     kill: ->

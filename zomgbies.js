@@ -829,7 +829,7 @@
       };
 
       AgentList.prototype.bestMoveFor = function(agent, direction, distance) {
-        var adjacentStructure, collision, collisions, currDir, currDist, currMove, factor, i, j, multiplier, player, _i, _j, _len, _ref, _ref1, _ref2;
+        var adjacentStructure, captureTarget, collision, collisions, currDir, currDist, currMove, factor, i, j, multiplier, player, _i, _j, _len, _ref, _ref1;
         factor = rand() > 0.5 ? 1 : -1;
         adjacentStructure = false;
         player = this.game.player;
@@ -842,7 +842,8 @@
             currDir = normalizeDirection(direction + multiplier * TEN_DEGREES);
             currMove = this.validateMoveFor(agent, currDir, currDist);
             collisions = currMove.collisions;
-            if (!collisions.length) {
+            captureTarget = collisions.length === 1 && collisions[0].agent === agent.target;
+            if (!collisions.length || captureTarget) {
               if (j && abs(normalizeDirection(agent.direction - currDir)) > HALF_PI) {
                 if (agent !== player) {
                   agent.rest(floor(rand() * 20 + 20), true);
@@ -852,9 +853,10 @@
                 distance: currDist * currMove.factor,
                 direction: currDir,
                 x: currMove.x,
-                y: currMove.y
+                y: currMove.y,
+                captureTarget: captureTarget
               };
-            } else if (j === 0 && ((_ref1 = collisions[0]) != null ? (_ref2 = _ref1.agent) != null ? _ref2.structure : void 0 : void 0)) {
+            } else if (j === 0 && ((_ref1 = collisions[0].agent) != null ? _ref1.structure : void 0)) {
               adjacentStructure = true;
             }
             if (adjacentStructure && j >= 16) {
@@ -1909,13 +1911,10 @@
         game = this.game;
         if (distSquared < minCaptureDist * minCaptureDist) {
           if (distSquared < speedSquared) {
-            this.takeStep(sqrt(distSquared));
-            this.set(target.x, target.y);
+            this.move(this.optimalDirection, sqrt(distSquared), false);
           } else {
             this.move(this.optimalDirection, speed);
           }
-          target.caughtBy(this);
-          this.restTime = 20;
         } else {
           direction = normalizeDirection(this.optimalDirection + this.wobble(this.pursuitWobble));
           if (this !== game.player) {
@@ -1954,16 +1953,22 @@
         return this.step = round(this.traveled / 32) % 2;
       };
 
-      Tracker.prototype.move = function(direction, distance, force) {
+      Tracker.prototype.move = function(direction, distance, changeDirection) {
         var frd;
-        if (force == null) {
-          force = true;
+        if (changeDirection == null) {
+          changeDirection = true;
         }
         if (frd = this.agents.bestMoveFor(this, direction, distance)) {
-          this.direction = frd.direction;
+          if (changeDirection) {
+            this.direction = frd.direction;
+          }
           this.currentSpeed = frd.distance;
           this.takeStep(this.currentSpeed);
           this.set(frd.x, frd.y);
+          if (frd.captureTarget) {
+            this.target.caughtBy(this);
+            this.restTime = 20;
+          }
         }
       };
 
